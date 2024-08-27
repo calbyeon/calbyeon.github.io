@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcGIS Map with Filtered Layer Attribute Table and Reporting</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.28/esri/themes/light/main.css">
+    <script>
+        var dojoConfig = {
+            async: true,
+            packages: [{
+                name: "app",
+                location: window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/')) + "/app"
+            }]
+        };
+    </script>
+    <script src="https://js.arcgis.com/4.28/"></script>
+    
+    <style>
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #f8f8f8;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 100;
+        }
+        #viewDiv {
+            flex: 1;
+            min-height: 0;
+        }
+        #featuresDiv {
+            height: 40%;
+            width: 100%;
+            background-color: white;
+            z-index: 10;
+            overflow: auto;
+            padding: 20px;
+            box-sizing: border-box;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+        }
+        #filterDiv {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            z-index: 20;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .attribute-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .attribute-table th, .attribute-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .attribute-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .attribute-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        #reportingDiv {
+            position: absolute;
+            top: 50px;
+            left: 60px;
+            z-index: 20;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        #yearFilter {
+            width: 100%;
+            max-height: 100px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 5px;
+            background-color: white;
+        }
+
+        #yearFilter option {
+            padding: 5px;
+        }
+
+        #yearFilter option:checked {
+            background-color: #e0e0e0;
+            color: #000;
+        }
+
+        #yearFilter::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #yearFilter::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        #yearFilter::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        #yearFilter::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <header id="header">
+            <div>City of Walnut Creek</div>
+            <div>Traffic Analytics Map</div>
+        </header>
+        <div id="viewDiv"></div>
+        <div id="featuresDiv"></div>
+    </div>
+    <div id="filterDiv">
+        <label for="dataTypeFilter">Filter by Data Type:</label>
+        <select id="dataTypeFilter">
+            <option value="All">All</option>
+            <option value="Bikes">Bikes</option>
+            <option value="Intersection Info">Intersection Info</option>
+            <option value="PHF">PHF</option>
+            <option value="Pedestrian">Pedestrian</option>
+            <option value="Heavy Vehicles">Heavy Vehicles</option>
+            <option value="Turning Movement">Turning Movement</option>
+        </select>
+        <br><br>
+        <label for="yearFilter">Filter by Year:</label>
+        <select id="yearFilter" multiple size="5">
+            <option value="All">All</option>
+        </select>
+        <br><br>
+        <label for="periodFilter">Filter by Period:</label>
+        <select id="periodFilter">
+            <option value="All">All</option>
+            <option value="AM">AM</option>
+            <option value="MID">MID</option>
+            <option value="PM">PM</option>
+        </select>
+        <br><br>
+        <label for="streetFilter">Filter by Street:</label>
+        <input type="text" id="streetFilter" placeholder="Enter street name">
+    </div>
+    <div id="reportingDiv">
+        <button id="generateReportBtn">Generate Report</button>
+        <button id="printMapBtn">Print Map</button>
+    </div>
+    <script>
+        // Wait for the DOM to be fully loaded
+        
+        document.addEventListener("DOMContentLoaded", function() {
+            // Load the ArcGIS modules
+            
+            var jsPDF;
+            require([
+                "esri/Map",
+                "esri/views/MapView",
+                "esri/layers/FeatureLayer",
+                "esri/rest/support/Query",
+                "esri/Graphic",
+                "esri/geometry/Extent",
+                "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, jspdf) {
+                var map, view, currentLayer, selectedFeatures = [];
+                jsPDF = jspdf.jsPDF;
+
+                let selectedLocations = [];
+
+                // Initialize the map
+                function initMap() {
+                    map = new Map({
+                        basemap: "streets-navigation-vector"
+                    });
+
+                    view = new MapView({
+                        container: "viewDiv",
+                        map: map,
+                        center: [-122.063686, 37.901657],
+                        zoom: 13
+                    });
+
+                    var baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/PEAK_Hour_Traffic_Analytics_WFL7/FeatureServer/";
+                    var layerIds = [207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 0];
+
+                    layerIds.forEach(function(id) {
+                        var layer = new FeatureLayer({
+                            url: baseUrl + id,
+                            outFields: ["*"]
+                        });
+                        map.add(layer);
+                    });
+
+                    // Add event listener for map click
+                    view.on("click", function(event) {
+                        view.hitTest(event).then(function(response) {
+                            var layerResult = response.results.filter(function(result) {
+                                return result.graphic && result.graphic.layer && result.graphic.layer.type === "feature";
+                            })[0];
+
+                            if (layerResult) {
+                                toggleLocationSelection(layerResult.graphic.layer);
+                            }
+                        });
+                    });
+
+                    // Add event listener for map load
+                    view.when(function() {
+                        console.log("Map loaded successfully. Click on a point to begin.");
+                    });
+                }
+
+                initMap();
+
+                function toggleLocationSelection(layer) {
+                    const index = selectedLocations.findIndex(l => l.id === layer.id);
+                    if (index > -1) {
+                        selectedLocations.splice(index, 1);
+                    } else {
+                        selectedLocations.push(layer);
+                    }
+                    updateLocationSelectionUI();
+                    querySelectedLocations();
+                }
+
+                function updateLocationSelectionUI() {
+                    console.log("Selected locations:", selectedLocations.length);
+                    // You can add more UI updates here, like updating a list of selected locations
+                }
+
+                function querySelectedLocations() {
+                    var promises = selectedLocations.map(function(layer) {
+                        return queryFeatures(layer);
+                    });
+
+                    Promise.all(promises).then(function(results) {
+                        var allFeatures = results.flat();
+                        displayAttributes(allFeatures);
+                        highlightFeatures(allFeatures);
+                    });
+                }
+
+                function populateYearFilter() {
+                    const yearFilter = document.getElementById("yearFilter");
+                    const currentYear = new Date().getFullYear();
+                    for (let year = 2000; year <= currentYear; year++) {
+                        const option = document.createElement("option");
+                        option.value = year;
+                        option.text = year;
+                        yearFilter.add(option);
+                    }
+                }
+
+                function getSelectedYears() {
+                    const yearFilter = document.getElementById("yearFilter");
+                    const selectedYears = Array.from(yearFilter.selectedOptions).map(option => option.value);
+                    return selectedYears.includes("All") ? ["All"] : selectedYears;
+                }
+
+                function queryFeatures(layer) {
+                    var query = new Query();
+                    var whereClause = [];
+                    
+                    var dataType = document.getElementById("dataTypeFilter").value;
+                    var years = getSelectedYears();
+                    var period = document.getElementById("periodFilter").value;
+                    var street = document.getElementById("streetFilter").value;
+
+                    if (dataType !== "All") {
+                        whereClause.push("Data_Type = '" + dataType + "'");
+                    }
+                    if (years.length > 0 && !years.includes("All")) {
+                        whereClause.push("Year IN (" + years.join(",") + ")");
+                    }
+                    if (period !== "All") {
+                        whereClause.push("Period = '" + period + "'");
+                    }
+                    if (street) {
+                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
+                    }
+                    
+                    query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
+                    query.outFields = ["*"];
+                    query.returnGeometry = true;
+
+                    return layer.queryFeatures(query).then(function(result) {
+                        return result.features;
+                    });
+                }
+
+                function displayAttributes(features) {
+                    var featuresDiv = document.getElementById("featuresDiv");
+                    featuresDiv.innerHTML = "";
+
+                    if (features.length === 0) {
+                        featuresDiv.innerHTML = "No features found in this layer.";
+                        featuresDiv.style.display = "block";
+                        return;
+                    }
+
+                    var table = document.createElement("table");
+                    table.className = "attribute-table";
+
+                    // Determine which columns have non-null values and are not excluded
+                    var columnsWithValues = {};
+                    var excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
+                    features.forEach(function(feature) {
+                        for (var attr in feature.attributes) {
+                            if (feature.attributes.hasOwnProperty(attr) && 
+                                feature.attributes[attr] !== null && 
+                                !excludedFields.includes(attr)) {
+                                columnsWithValues[attr] = true;
+                            }
+                        }
+                    });
+
+                    // Create header row
+                    var headerRow = table.insertRow();
+                    for (var attr in features[0].attributes) {
+                        if (features[0].attributes.hasOwnProperty(attr) && 
+                            columnsWithValues[attr] && 
+                            !excludedFields.includes(attr)) {
+                            var headerCell = headerRow.insertCell();
+                            headerCell.innerHTML = attr;
+                        }
+                    }
+
+                    // Create data rows
+                    features.forEach(function(feature) {
+                        var dataRow = table.insertRow();
+                        for (var attr in feature.attributes) {
+                            if (feature.attributes.hasOwnProperty(attr) && 
+                                columnsWithValues[attr] && 
+                                !excludedFields.includes(attr)) {
+                                var dataCell = dataRow.insertCell();
+                                dataCell.innerHTML = feature.attributes[attr] !== null ? feature.attributes[attr] : "N/A";
+                            }
+                        }
+                    });
+
+                    featuresDiv.appendChild(table);
+                    featuresDiv.style.display = "block";
+                }
+
+                function highlightFeatures(features) {
+                    view.graphics.removeAll();
+                    features.forEach(function(feature) {
+                        var graphic = new Graphic({
+                            geometry: feature.geometry,
+                            symbol: {
+                                type: "simple-marker",
+                                style: "circle",
+                                color: [255, 255, 0, 0.8],
+                                size: "12px",
+                                outline: {
+                                    color: [255, 255, 0, 0.8],
+                                    width: "2px"
+                                }
+                            }
+                        });
+                        view.graphics.add(graphic);
+                    });
+                }
+
+                // Add event listeners for all filters
+                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
+                document.getElementById("yearFilter").addEventListener("change", applyFilters);
+                document.getElementById("periodFilter").addEventListener("change", applyFilters);
+                document.getElementById("streetFilter").addEventListener("input", applyFilters);
+
+                document.getElementById("generateReportBtn").addEventListener("click", function() {
+                    if (selectedLocations.length === 0) {
+                        alert("No locations selected. Please select locations for the report.");
+                        return;
+                    }
+
+                    var promises = selectedLocations.map(function(layer) {
+                        return queryFeatures(layer);
+                    });
+
+                    Promise.all(promises).then(function(results) {
+                        var allFeatures = results.flat();
+                        generatePDF(allFeatures);
+                    });
+                });
+
+                document.getElementById("printMapBtn").addEventListener("click", function() {
+                    if (selectedLocations.length === 0) {
+                        alert("No locations selected. Please select locations first.");
+                        return;
+                    }
+
+                    var promises = selectedLocations.map(function(layer) {
+                        return queryFeatures(layer);
+                    });
+
+                    Promise.all(promises).then(function(results) {
+                        var allFeatures = results.flat();
+                        printMap(allFeatures);
+                    });
+                });
+
+                function applyFilters() {
+                    querySelectedLocations();
+                }
+
+                // Populate year filter options
+                var yearFilter = document.getElementById("yearFilter");
+                for (var year = 2000; year <= 2022; year++) {
+                    var option = document.createElement("option");
+                    option.value = year;
+                    option.text = year;
+                    yearFilter.add(option);
+                }
+
+                // Generate Report
+                // Modify the generatePDF function for better table formatting
+                function generatePDF(features) {
+                    const doc = new jspdf.jsPDF({
+                        orientation: 'landscape',
+                        unit: 'mm',
+                        format: 'a4'
+                    });
+                    
+                    let yPos = 15;
+
+                    // Set font styles
+                    const titleFont = 'helvetica';
+                    const bodyFont = 'helvetica';
+                    doc.setFont(titleFont, 'bold');
+                    doc.setFontSize(16);
+                    doc.text("Traffic Analytics Report", 15, yPos);
+                    yPos += 10;
+
+                    doc.setFont(bodyFont, 'normal');
+                    doc.setFontSize(8);
+                    
+                    const excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W", "Intersection_Traffic_Volumes"];
+                    const attributes = Object.keys(features[0].attributes)
+                        .filter(attr => !excludedFields.includes(attr));
+
+                    // Calculate column widths
+                    const pageWidth = doc.internal.pageSize.width;
+                    const margins = 5;
+                    const tableWidth = pageWidth - (margins * 2);
+                    const minColumnWidth = 30; // Set minimum column width in mm
+                    const maxColumnWidth = 50; // Set maximum column width in mm
+
+                    const columnWidths = attributes.map(attr => {
+                        const maxWidth = Math.max(
+                            doc.getStringUnitWidth(attr) * 2.5,
+                            ...features.map(f => doc.getStringUnitWidth(f.attributes[attr]?.toString() || "") * 2.5)
+                        );
+                        return Math.min(Math.max(maxWidth, minColumnWidth), maxColumnWidth);
+                    });
+
+                    const totalWidth = columnWidths.reduce((a, b) => a + b, 0);
+                    const scaleFactor = tableWidth / totalWidth;
+                    const finalColumnWidths = columnWidths.map(w => w * scaleFactor);
+
+                    // Create table header
+                    doc.setFillColor(220, 220, 220);
+                    doc.rect(margins, yPos, tableWidth, 16, 'F');
+                    doc.setFont(bodyFont, 'bold');
+                    doc.setTextColor(0);
+                    let xPos = margins;
+                    attributes.forEach((attr, index) => {
+                        doc.text(attr, xPos + 1, yPos + 5.5, { maxWidth: finalColumnWidths[index] - 2, align: 'left' });
+                        xPos += finalColumnWidths[index];
+                    });
+                    yPos += 16;
+
+                    // Create table rows
+                    doc.setFont(bodyFont, 'normal');
+                    features.forEach((feature, featureIndex) => {
+                        xPos = margins;
+                        let maxRowHeight = 0;
+
+                        // Calculate row height based on content
+                        attributes.forEach((attr, attrIndex) => {
+                            const value = feature.attributes[attr]?.toString() || "N/A";
+                            const textHeight = doc.getTextDimensions(value, { maxWidth: finalColumnWidths[attrIndex] - 2 }).h;
+                            maxRowHeight = Math.max(maxRowHeight, textHeight);
+                        });
+
+                        maxRowHeight += 2; // Add some padding
+
+                        // Alternate row colors
+                        doc.setFillColor(featureIndex % 2 === 0 ? 255 : 245);
+                        doc.rect(margins, yPos, tableWidth, maxRowHeight, 'F');
+
+                        attributes.forEach((attr, attrIndex) => {
+                            const value = feature.attributes[attr]?.toString() || "N/A";
+                            doc.text(value, xPos + 1, yPos + 4, { 
+                                maxWidth: finalColumnWidths[attrIndex] - 2,
+                                align: 'left'
+                            });
+                            xPos += finalColumnWidths[attrIndex];
+                        });
+                        yPos += maxRowHeight;
+
+                        // Add a new page if we're near the bottom
+                        if (yPos > doc.internal.pageSize.height - 20) {
+                            doc.addPage();
+                            yPos = margins;
+                            
+                            // Repeat the header on the new page
+                            doc.setFillColor(220, 220, 220);
+                            doc.rect(margins, yPos, tableWidth, 8, 'F');
+                            doc.setFont(bodyFont, 'bold');
+                            xPos = margins;
+                            attributes.forEach((attr, index) => {
+                                doc.text(attr, xPos + 1, yPos + 5.5, { maxWidth: finalColumnWidths[index] - 2, align: 'left' });
+                                xPos += finalColumnWidths[index];
+                            });
+                            yPos += 8;
+                            doc.setFont(bodyFont, 'normal');
+                        }
+                    });
+
+                    // Add filters applied
+                    yPos += 10;
+                    doc.setFont(bodyFont, 'bold');
+                    doc.setFontSize(10);
+                    doc.text("Filters Applied:", margins, yPos);
+                    yPos += 7;
+                    doc.setFont(bodyFont, 'normal');
+                    doc.setFontSize(9);
+                    const filters = [
+                        `Data Type: ${document.getElementById("dataTypeFilter").value}`,
+                        `Year: ${getSelectedYears().join(", ")}`,
+                        `Period: ${document.getElementById("periodFilter").value}`,
+                        `Street: ${document.getElementById("streetFilter").value || "None"}`
+                    ];
+                    filters.forEach(filter => {
+                        doc.text(filter, margins + 5, yPos);
+                        yPos += 5;
+                    });
+
+                    doc.save("traffic_analytics_report.pdf");
+                }
+
+                function printMap(features) {
+                    if (features.length === 0) {
+                        alert("No features selected. Please select features first.");
+                        return;
+                    }
+
+                    var extent = null;
+                    var validFeatures = features.filter(function(feature) {
+                        return feature.geometry;
+                    });
+
+                    if (validFeatures.length === 0) {
+                        alert("No valid geometries found in the selected features. Unable to print map.");
+                        return;
+                    }
+
+                    validFeatures.forEach(function(feature) {
+                        if (feature.geometry.type === "point") {
+                            var point = feature.geometry;
+                            var buffer = 0.001;
+                            var pointExtent = new Extent({
+                                xmin: point.x - buffer,
+                                ymin: point.y - buffer,
+                                xmax: point.x + buffer,
+                                ymax: point.y + buffer,
+                                spatialReference: view.spatialReference
+                            });
+                            
+                            if (extent) {
+                                extent = extent.union(pointExtent);
+                            } else {
+                                extent = pointExtent;
+                            }
+                        } else if (feature.geometry.extent) {
+                            if (extent) {
+                                extent = extent.union(feature.geometry.extent);
+                            } else {
+                                extent = feature.geometry.extent.clone();
+                            }
+                        }
+                    });
+
+                    if (!extent) {
+                        alert("Unable to determine map extent. Please try again.");
+                        return;
+                    }
+
+                    // Adjust the zoom level more precisely
+                    view.goTo(extent.expand(0.5,1)).then(function() {
+                        // Add a delay before taking the screenshot
+                        setTimeout(function() {
+                            view.takeScreenshot({ 
+                                format: "jpg",
+                                width: 900,
+                                height: 1200
+                            }).then(function(screenshot) {
+                                var image = new Image();
+                                image.src = screenshot.dataUrl;
+
+                                image.onload = function() {
+                                    var doc = new jspdf.jsPDF({
+                                        orientation: "portrait",
+                                        unit: "mm",
+                                        format: "a4"
+                                    });
+
+                                    doc.setFontSize(18);
+                                    doc.text("Traffic Analytics Map", 105, 15, { align: "center" });
+
+                                    var pageWidth = doc.internal.pageSize.getWidth();
+                                    var pageHeight = doc.internal.pageSize.getHeight();
+                                    var margin = 10;
+                                    var bottomY = pageHeight - 20; // Start 20mm from bottom
+                                    var maxWidth = pageWidth - (2 * margin);
+                                    var maxHeight = pageHeight - 50;
+
+                                    var imgRatio = image.height / image.width;
+                                    var pageRatio = maxHeight / maxWidth;
+
+                                    var imgWidth, imgHeight;
+
+                                    if (imgRatio > pageRatio) {
+                                        imgHeight = maxHeight;
+                                        imgWidth = imgHeight / imgRatio;
+                                    } else {
+                                        imgWidth = maxWidth;
+                                        imgHeight = imgWidth * imgRatio;
+                                    }
+
+                                    var xOffset = (pageWidth - imgWidth) / 2;
+
+                                    doc.addImage(image, "JPEG", xOffset, 25, imgWidth, imgHeight);
+                                    // scalebar
+                                    doc.setLineWidth(0.5);
+                                    doc.line(margin, bottomY, margin + 50, bottomY);
+                                    doc.setFontSize(8);
+                                    doc.text("0", margin, bottomY + 5);
+                                    doc.text("500 m", margin + 40, bottomY + 5);
+                                    // legend
+                                    doc.setFontSize(10);
+                                    doc.text("Legend", pageWidth - margin - 40, bottomY);
+                                    doc.circle(pageWidth - margin - 35, bottomY + 7, 2, "F");
+                                    doc.setFontSize(8);
+                                    doc.text("Selected Location", pageWidth - margin - 30, bottomY + 8);
+                                    // date and filters
+                                    doc.setFontSize(8);
+                                    var dateText = `Date: ${new Date().toLocaleDateString()}`;
+                                    var filterText = `Filters: ${document.getElementById("dataTypeFilter").value}, ${document.getElementById("yearFilter").value}, ${document.getElementById("periodFilter").value}`;
+                                    
+                                    doc.text(dateText, margin, pageHeight - 10);
+                                    doc.text(filterText, margin, pageHeight - 5);
+
+                                    doc.save("traffic_analytics_map.pdf");
+                                };
+                            });
+                        }, 2000); // 2 second delay to ensure map is fully rendered
+                    }).catch(function(error) {
+                        console.error("Error while zooming to extent:", error);
+                        alert("An error occurred while preparing the map for print. Please try again.");
+                    });
+                }
+            });
+        });
+        
+    </script>
+</body>
+</html>
