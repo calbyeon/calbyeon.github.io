@@ -617,7 +617,7 @@
                     }
 
                     // Adjust the zoom level more precisely
-                    view.goTo(extent.expand(0.5,1)).then(function() {
+                    view.goTo(extent.expand(0,1)).then(function() {
                         // Add a delay before taking the screenshot
                         setTimeout(function() {
                             view.takeScreenshot({ 
