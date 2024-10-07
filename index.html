@@ -23,6 +23,7 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
+            font-family: Arial, sans-serif;
         }
         #app-container {
             display: flex;
@@ -37,7 +38,6 @@
             padding: 10px 20px;
             background-color: #f8f8f8;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            font-family: Arial, sans-serif;
             font-size: 16px;
             font-weight: bold;
             z-index: 100;
@@ -62,15 +62,15 @@
             right: 20px;
             z-index: 20;
             background-color: white;
-            padding: 10px;
+            padding: 15px;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            width: 250px;
         }
         .attribute-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 12px;
-
         }
         .attribute-table th, .attribute-table td {
             border: 1px solid #ddd;
@@ -83,25 +83,21 @@
             position: sticky;
             top: 0;
             z-index: 1;
+            cursor: pointer;
         }
         .attribute-table tr:nth-child(even) {
             background-color: #f9f9f9;
         }
-
-        .attribute-table thead {
-            position: sticky;
-        }
         #reportingDiv {
             position: absolute;
             top: 50px;
-            left: 60px;
+            left: 20px;
             z-index: 20;
             background-color: white;
-            padding: 10px;
+            padding: 15px;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-
         #yearFilter {
             width: 100%;
             max-height: 100px;
@@ -111,31 +107,39 @@
             padding: 5px;
             background-color: white;
         }
-
         #yearFilter option {
             padding: 5px;
         }
-
         #yearFilter option:checked {
             background-color: #e0e0e0;
             color: #000;
         }
-
         #yearFilter::-webkit-scrollbar {
             width: 8px;
         }
-
         #yearFilter::-webkit-scrollbar-track {
             background: #f1f1f1;
         }
-
         #yearFilter::-webkit-scrollbar-thumb {
             background: #888;
             border-radius: 4px;
         }
-
         #yearFilter::-webkit-scrollbar-thumb:hover {
             background: #555;
+        }
+        /* Style for validation feedback */
+        input:invalid {
+            border-color: red;
+        }
+        input:valid {
+            border-color: green;
+        }
+        /* Style for the street error message */
+        #streetError {
+            color: red;
+            display: none;
+            font-size: 12px;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -163,6 +167,7 @@
         <label for="yearFilter">Filter by Year:</label>
         <select id="yearFilter" multiple size="5">
             <option value="All">All</option>
+            <!-- Options populated dynamically -->
         </select>
         <br><br>
         <label for="periodFilter">Filter by Period:</label>
@@ -174,7 +179,11 @@
         </select>
         <br><br>
         <label for="streetFilter">Filter by Street:</label>
-        <input type="text" id="streetFilter" placeholder="Enter street name">
+        <input list="streetNames" id="streetFilter" placeholder="Enter street name" required>
+        <datalist id="streetNames">
+            <!-- Street options will be populated dynamically -->
+        </datalist>
+        <span id="streetError">Please select a valid street from the suggestions.</span>
     </div>
     <div id="reportingDiv">
         <button id="generateReportBtn">Generate Report</button>
@@ -182,10 +191,8 @@
     </div>
     <script>
         // Wait for the DOM to be fully loaded
-        
         document.addEventListener("DOMContentLoaded", function() {
             // Load the ArcGIS modules
-            
             var jsPDF;
             require([
                 "esri/Map",
@@ -200,6 +207,68 @@
                 jsPDF = jspdf.jsPDF;
 
                 let selectedLocations = [];
+
+                // Function to normalize street names
+                function normalizeStreetName(street) {
+                    return street.trim().toLowerCase().replace(/\./g, "").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\broad\b/g, "rd");
+                }
+
+                // Function to populate the street datalist with unique street names
+                function populateStreetDatalist() {
+                    const streetSet = new Set(); // To store unique normalized street names
+                    const streetList = []; // To store street names with original casing
+
+                    // Iterate through each layer to extract street names
+                    map.layers.forEach(function(layer) {
+                        if (layer instanceof FeatureLayer) {
+                            // Query distinct Major_Street and Minor_Street values
+                            const query = layer.createQuery();
+                            query.where = "1=1"; // Adjust if necessary
+                            query.outFields = ["Major_Street", "Minor_Street"];
+                            query.returnDistinctValues = true;
+                            query.returnGeometry = false;
+
+                            layer.queryFeatures(query)
+                                .then(function(result) {
+                                    result.features.forEach(function(feature) {
+                                        const majorStreet = feature.attributes.Major_Street;
+                                        const minorStreet = feature.attributes.Minor_Street;
+
+                                        // Process Major_Street
+                                        if (majorStreet && majorStreet.trim() !== "") {
+                                            const normalizedMajor = normalizeStreetName(majorStreet);
+                                            if (!streetSet.has(normalizedMajor)) {
+                                                streetSet.add(normalizedMajor);
+                                                streetList.push(majorStreet.trim());
+                                            }
+                                        }
+
+                                        // Process Minor_Street
+                                        if (minorStreet && minorStreet.trim() !== "") {
+                                            const normalizedMinor = normalizeStreetName(minorStreet);
+                                            if (!streetSet.has(normalizedMinor)) {
+                                                streetSet.add(normalizedMinor);
+                                                streetList.push(minorStreet.trim());
+                                            }
+                                        }
+                                    });
+
+                                    // After collecting all unique street names, populate the datalist
+                                    const datalist = document.getElementById("streetNames");
+                                    datalist.innerHTML = ""; // Clear existing options
+                                    streetList.sort(); // Sort alphabetically
+                                    streetList.forEach(function(street) {
+                                        const option = document.createElement("option");
+                                        option.value = street;
+                                        datalist.appendChild(option);
+                                    });
+                                })
+                                .catch(function(error) {
+                                    console.error("Error fetching street names from layer:", layer.title, error);
+                                });
+                        }
+                    });
+                }
 
                 // Initialize the map
                 function initMap() {
@@ -223,7 +292,6 @@
                             outFields: ["*"]
                         });
                         map.add(layer);
-                        
                     });
 
                     // Add event listener for map click
@@ -242,11 +310,61 @@
                     // Add event listener for map load
                     view.when(function() {
                         console.log("Map loaded successfully. Click on a point to begin.");
+                        populateStreetDatalist(); // Populate streets after map is ready
                     });
                 }
 
                 initMap();
 
+                // Function to validate and provide visual feedback for street input
+                function validateStreetInput() {
+                    const streetInput = document.getElementById("streetFilter");
+                    const datalist = document.getElementById("streetNames");
+                    const options = datalist.options;
+                    const enteredValue = streetInput.value.trim().toLowerCase();
+                    let isValid = false;
+
+                    for (let i = 0; i < options.length; i++) {
+                        if (normalizeStreetName(options[i].value) === normalizeStreetName(enteredValue)) {
+                            isValid = true;
+                            break;
+                        }
+                    }
+
+                    const streetError = document.getElementById("streetError");
+
+                    if (isValid || enteredValue === "") {
+                        streetInput.style.borderColor = "green";
+                        streetError.style.display = "none";
+                        streetInput.setCustomValidity("");
+                    } else {
+                        streetInput.style.borderColor = "red";
+                        streetError.style.display = "block";
+                        streetInput.setCustomValidity("Please select a valid street from the suggestions.");
+                    }
+                }
+
+                // Function to handle Enter key press for selecting the top autocomplete option
+                function handleEnterKey(event) {
+                    if (event.key === "Enter") {
+                        const streetInput = event.target;
+                        const datalist = document.getElementById("streetNames");
+                        const options = Array.from(datalist.options).map(option => normalizeStreetName(option.value));
+                        const enteredValue = normalizeStreetName(streetInput.value);
+
+                        // Check if entered value matches any option
+                        if (!options.includes(enteredValue) && options.length > 0) {
+                            // Prevent form submission if inside a form
+                            event.preventDefault();
+
+                            // Set the input value to the first suggestion
+                            streetInput.value = datalist.options[0].value;
+                            validateStreetInput(); // Update validation visuals
+                        }
+                    }
+                }
+
+                // Function to toggle location selection
                 function toggleLocationSelection(layer) {
                     const index = selectedLocations.findIndex(l => l.id === layer.id);
                     if (index > -1) {
@@ -258,11 +376,13 @@
                     querySelectedLocations();
                 }
 
+                // Function to update location selection UI
                 function updateLocationSelectionUI() {
                     console.log("Selected locations:", selectedLocations.length);
                     // You can add more UI updates here, like updating a list of selected locations
                 }
 
+                // Function to query selected locations
                 function querySelectedLocations() {
                     var promises = selectedLocations.map(function(layer) {
                         return queryFeatures(layer);
@@ -275,26 +395,41 @@
                     });
                 }
 
-                function populateYearFilter() {
-                    const yearFilter = document.getElementById("yearFilter");
-                    const currentYear = new Date().getFullYear();
-                    for (let year = 2000; year <= currentYear; year++) {
-                        const option = document.createElement("option");
-                        option.value = year;
-                        option.text = year;
-                        yearFilter.add(option);
+                // Function to build where clause based on filters
+                function buildWhereClause(layer) {
+                    const whereClause = [];
+                    const dataType = document.getElementById("dataTypeFilter").value;
+                    const years = getSelectedYears();
+                    const period = document.getElementById("periodFilter").value;
+                    const street = document.getElementById("streetFilter").value;
+
+                    if (dataType !== "All") {
+                        whereClause.push("Data_Type = '" + dataType + "'");
                     }
+                    if (years.length > 0 && !years.includes("All")) {
+                        whereClause.push("Year IN (" + years.join(",") + ")");
+                    }
+                    if (period !== "All") {
+                        whereClause.push("Period = '" + period + "'");
+                    }
+                    if (street) {
+                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
+                    }
+
+                    return whereClause;
                 }
 
+                // Function to get selected years
                 function getSelectedYears() {
                     const yearFilter = document.getElementById("yearFilter");
                     const selectedYears = Array.from(yearFilter.selectedOptions).map(option => option.value);
                     return selectedYears.includes("All") ? ["All"] : selectedYears;
                 }
 
+                // Function to query features from a layer based on filters
                 function queryFeatures(layer) {
                     var query = new Query();
-                    var whereClause = [];
+                    var whereClause = buildWhereClause(layer);
                     
                     var dataType = document.getElementById("dataTypeFilter").value;
                     var years = getSelectedYears();
@@ -323,6 +458,7 @@
                     });
                 }
 
+                // Function to display attributes in the featuresDiv
                 function displayAttributes(features) {
                     var featuresDiv = document.getElementById("featuresDiv");
                     featuresDiv.innerHTML = "";
@@ -359,7 +495,6 @@
                             headers.push(attr);
                             var headerCell = document.createElement("th");
                             headerCell.innerHTML = attr + ' <span class="sort-indicator">⇅</span>';
-                            headerCell.style.cursor = "pointer";
                             
                             // Use let to capture the current value of attr
                             headerCell.addEventListener("click", function() {
@@ -386,6 +521,7 @@
 
                 let currentSort = { index: -1, asc: true };
 
+                // Function to sort the table based on column index
                 function sortTable(table, columnIndex, headerCell) {
                     if (columnIndex === -1) {
                         console.error("Invalid column index:", columnIndex);
@@ -440,6 +576,7 @@
                     updateSortIndicators(table, columnIndex, currentSort.asc);
                 }
 
+                // Function to update sort indicators in the table headers
                 function updateSortIndicators(table, sortedColumn, asc) {
                     var headers = table.tHead.rows[0].cells;
                     for (var i = 0; i < headers.length; i++) {
@@ -452,6 +589,7 @@
                     }
                 }
 
+                // Function to highlight features on the map
                 function highlightFeatures(features) {
                     view.graphics.removeAll();
                     features.forEach(function(feature) {
@@ -472,44 +610,7 @@
                     });
                 }
 
-                // Add event listeners for all filters
-                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
-                document.getElementById("yearFilter").addEventListener("change", applyFilters);
-                document.getElementById("periodFilter").addEventListener("change", applyFilters);
-                document.getElementById("streetFilter").addEventListener("input", applyFilters);
-
-                document.getElementById("generateReportBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations for the report.");
-                        return;
-                    }
-
-                    var promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
-                    });
-
-                    Promise.all(promises).then(function(results) {
-                        var allFeatures = results.flat();
-                        generatePDF(allFeatures);
-                    });
-                });
-
-                document.getElementById("printMapBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations first.");
-                        return;
-                    }
-
-                    var promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
-                    });
-
-                    Promise.all(promises).then(function(results) {
-                        var allFeatures = results.flat();
-                        printMap(allFeatures);
-                    });
-                });
-
+                // Function to apply filters and update layer visibility
                 function applyFilters() {
                     selectedLocations = []; // Reset selected locations
                     map.layers.forEach(function(layer) {
@@ -528,40 +629,7 @@
                     });
                 }
 
-                function buildWhereClause(layer) {
-                    const whereClause = [];
-                    const dataType = document.getElementById("dataTypeFilter").value;
-                    const years = getSelectedYears();
-                    const period = document.getElementById("periodFilter").value;
-                    const street = document.getElementById("streetFilter").value;
-
-                    if (dataType !== "All") {
-                        whereClause.push("Data_Type = '" + dataType + "'");
-                    }
-                    if (years.length > 0 && !years.includes("All")) {
-                        whereClause.push("Year IN (" + years.join(",") + ")");
-                    }
-                    if (period !== "All") {
-                        whereClause.push("Period = '" + period + "'");
-                    }
-                    if (street) {
-                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
-                    }
-
-                    return whereClause;
-                }
-
-                // Populate year filter options
-                var yearFilter = document.getElementById("yearFilter");
-                for (var year = 2000; year <= 2022; year++) {
-                    var option = document.createElement("option");
-                    option.value = year;
-                    option.text = year;
-                    yearFilter.add(option);
-                }
-
-                // Generate Report
-                // Modify the generatePDF function for better table formatting
+                // Function to generate PDF report
                 function generatePDF(features) {
                     const doc = new jspdf.jsPDF({
                         orientation: 'landscape',
@@ -576,7 +644,7 @@
                     const bodyFont = 'helvetica';
                     doc.setFont(titleFont, 'bold');
                     doc.setFontSize(16);
-                    doc.text("Traffic Analytics Report", 15, yPos);
+                    doc.text("Traffic Analytics Report", 105, yPos, { align: 'center' });
                     yPos += 10;
 
                     doc.setFont(bodyFont, 'normal');
@@ -687,6 +755,7 @@
                     doc.save("traffic_analytics_report.pdf");
                 }
 
+                // Function to print the map as PDF
                 function printMap(features) {
                     if (features.length === 0) {
                         alert("No features selected. Please select features first.");
@@ -779,19 +848,19 @@
                                     var xOffset = (pageWidth - imgWidth) / 2;
 
                                     doc.addImage(image, "JPEG", xOffset, 25, imgWidth, imgHeight);
-                                    // scalebar
+                                    // Scalebar
                                     doc.setLineWidth(0.5);
                                     doc.line(margin, bottomY, margin + 50, bottomY);
                                     doc.setFontSize(8);
                                     doc.text("0", margin, bottomY + 5);
                                     doc.text("500 m", margin + 40, bottomY + 5);
-                                    // legend
+                                    // Legend
                                     doc.setFontSize(10);
                                     doc.text("Legend", pageWidth - margin - 40, bottomY);
                                     doc.circle(pageWidth - margin - 35, bottomY + 7, 2, "F");
                                     doc.setFontSize(8);
                                     doc.text("Selected Location", pageWidth - margin - 30, bottomY + 8);
-                                    // date and filters
+                                    // Date and filters
                                     doc.setFontSize(8);
                                     var dateText = `Date: ${new Date().toLocaleDateString()}`;
                                     var filterText = `Filters: ${document.getElementById("dataTypeFilter").value}, ${document.getElementById("yearFilter").value}, ${document.getElementById("periodFilter").value}`;
@@ -808,9 +877,144 @@
                         alert("An error occurred while preparing the map for print. Please try again.");
                     });
                 }
+
+                // Function to handle Enter key press for selecting the top autocomplete option
+                function handleEnterKey(event) {
+                    if (event.key === "Enter") {
+                        const streetInput = event.target;
+                        const datalist = document.getElementById("streetNames");
+                        const options = Array.from(datalist.options).map(option => normalizeStreetName(option.value));
+                        const enteredValue = normalizeStreetName(streetInput.value);
+
+                        // Check if entered value matches any option
+                        if (!options.includes(enteredValue) && options.length > 0) {
+                            // Prevent form submission if inside a form
+                            event.preventDefault();
+
+                            // Set the input value to the first suggestion
+                            streetInput.value = datalist.options[0].value;
+                            validateStreetInput(); // Update validation visuals
+                        }
+                    }
+                }
+
+                // Function to normalize street names
+                function normalizeStreetName(street) {
+                    return street.trim().toLowerCase()
+                                 .replace(/\./g, "")
+                                 .replace(/\bstreet\b/g, "st")
+                                 .replace(/\bavenue\b/g, "ave")
+                                 .replace(/\broad\b/g, "rd")
+                                 .replace(/\bdrive\b/g, "dr")
+                                 .replace(/\bsuite\b/g, "ste");
+                }
+
+                // Add event listeners for validation and Enter key
+                document.getElementById("streetFilter").addEventListener("input", function() {
+                    applyFilters();
+                    validateStreetInput();
+                });
+                document.getElementById("streetFilter").addEventListener("change", validateStreetInput);
+                document.getElementById("streetFilter").addEventListener("keydown", handleEnterKey);
+
+                // Add event listeners for other filters
+                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
+                document.getElementById("yearFilter").addEventListener("change", applyFilters);
+                document.getElementById("periodFilter").addEventListener("change", applyFilters);
+
+                // Populate year filter options on load
+                populateYearFilter();
+
+                function populateYearFilter() {
+                    const yearFilter = document.getElementById("yearFilter");
+                    const currentYear = new Date().getFullYear();
+                    for (let year = 2000; year <= currentYear; year++) {
+                        const option = document.createElement("option");
+                        option.value = year;
+                        option.text = year;
+                        yearFilter.add(option);
+                    }
+                }
+
+                // Generate Report Button
+                document.getElementById("generateReportBtn").addEventListener("click", function() {
+                    if (selectedLocations.length === 0) {
+                        alert("No locations selected. Please select locations for the report.");
+                        return;
+                    }
+
+                    var promises = selectedLocations.map(function(layer) {
+                        return queryFeatures(layer);
+                    });
+
+                    Promise.all(promises).then(function(results) {
+                        var allFeatures = results.flat();
+                        generatePDF(allFeatures);
+                    });
+                });
+
+                // Print Map Button
+                document.getElementById("printMapBtn").addEventListener("click", function() {
+                    if (selectedLocations.length === 0) {
+                        alert("No locations selected. Please select locations first.");
+                        return;
+                    }
+
+                    var promises = selectedLocations.map(function(layer) {
+                        return queryFeatures(layer);
+                    });
+
+                    Promise.all(promises).then(function(results) {
+                        var allFeatures = results.flat();
+                        printMap(allFeatures);
+                    });
+                });
+
+                // Function to apply filters
+                function applyFilters() {
+                    selectedLocations = []; // Reset selected locations
+                    map.layers.forEach(function(layer) {
+                        if (!(layer instanceof FeatureLayer)) return; // Skip non-feature layers
+                        const query = new Query();
+                        const whereClause = buildWhereClause(layer);
+                        query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
+                        query.returnGeometry = false;
+                        query.outFields = ["*"];
+                        
+                        layer.queryFeatureCount(query).then(function(count) {
+                            layer.visible = count > 0;
+                        }).catch(function(error) {
+                            console.error("Query count failed: ", error);
+                            layer.visible = false;
+                        });
+                    });
+                }
+
+                // Function to build where clause based on filters
+                function buildWhereClause(layer) {
+                    const whereClause = [];
+                    const dataType = document.getElementById("dataTypeFilter").value;
+                    const years = getSelectedYears();
+                    const period = document.getElementById("periodFilter").value;
+                    const street = document.getElementById("streetFilter").value;
+
+                    if (dataType !== "All") {
+                        whereClause.push("Data_Type = '" + dataType + "'");
+                    }
+                    if (years.length > 0 && !years.includes("All")) {
+                        whereClause.push("Year IN (" + years.join(",") + ")");
+                    }
+                    if (period !== "All") {
+                        whereClause.push("Period = '" + period + "'");
+                    }
+                    if (street) {
+                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
+                    }
+
+                    return whereClause;
+                }
             });
         });
-        
     </script>
 </body>
 </html>
