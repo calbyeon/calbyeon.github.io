@@ -69,7 +69,8 @@
         .attribute-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 14px;
+            font-size: 12px;
+
         }
         .attribute-table th, .attribute-table td {
             border: 1px solid #ddd;
@@ -85,6 +86,10 @@
         }
         .attribute-table tr:nth-child(even) {
             background-color: #f9f9f9;
+        }
+
+        .attribute-table thead {
+            position: sticky;
         }
         #reportingDiv {
             position: absolute;
@@ -218,6 +223,7 @@
                             outFields: ["*"]
                         });
                         map.add(layer);
+                        
                     });
 
                     // Add event listener for map click
@@ -334,7 +340,7 @@
                     var columnsWithValues = {};
                     var excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
                     features.forEach(function(feature) {
-                        for (var attr in feature.attributes) {
+                        for (let attr in feature.attributes) { // Changed var to let
                             if (feature.attributes.hasOwnProperty(attr) && 
                                 feature.attributes[attr] !== null && 
                                 !excludedFields.includes(attr)) {
@@ -344,31 +350,106 @@
                     });
 
                     // Create header row
-                    var headerRow = table.insertRow();
-                    for (var attr in features[0].attributes) {
+                    var headerRow = table.createTHead().insertRow();
+                    var headers = [];
+                    for (let attr in features[0].attributes) { // Changed var to let
                         if (features[0].attributes.hasOwnProperty(attr) && 
                             columnsWithValues[attr] && 
                             !excludedFields.includes(attr)) {
-                            var headerCell = headerRow.insertCell();
-                            headerCell.innerHTML = attr;
+                            headers.push(attr);
+                            var headerCell = document.createElement("th");
+                            headerCell.innerHTML = attr + ' <span class="sort-indicator">⇅</span>';
+                            headerCell.style.cursor = "pointer";
+                            
+                            // Use let to capture the current value of attr
+                            headerCell.addEventListener("click", function() {
+                                const columnIndex = headers.indexOf(attr);
+                                sortTable(table, columnIndex, this);
+                            });
+                            headerRow.appendChild(headerCell);
                         }
                     }
 
-                    // Create data rows
+                    // Create tbody
+                    var tbody = table.createTBody();
                     features.forEach(function(feature) {
-                        var dataRow = table.insertRow();
-                        for (var attr in feature.attributes) {
-                            if (feature.attributes.hasOwnProperty(attr) && 
-                                columnsWithValues[attr] && 
-                                !excludedFields.includes(attr)) {
-                                var dataCell = dataRow.insertCell();
-                                dataCell.innerHTML = feature.attributes[attr] !== null ? feature.attributes[attr] : "N/A";
-                            }
-                        }
+                        var dataRow = tbody.insertRow();
+                        headers.forEach(function(attr) {
+                            var dataCell = dataRow.insertCell();
+                            dataCell.innerHTML = feature.attributes[attr] !== null ? feature.attributes[attr] : "N/A";
+                        });
                     });
 
                     featuresDiv.appendChild(table);
                     featuresDiv.style.display = "block";
+                }
+
+                let currentSort = { index: -1, asc: true };
+
+                function sortTable(table, columnIndex, headerCell) {
+                    if (columnIndex === -1) {
+                        console.error("Invalid column index:", columnIndex);
+                        return;
+                    }
+
+                    var tbody = table.tBodies[0];
+                    var rows = Array.from(tbody.rows);
+
+                    if (currentSort.index === columnIndex) {
+                        currentSort.asc = !currentSort.asc;
+                    } else {
+                        currentSort.index = columnIndex;
+                        currentSort.asc = true;
+                    }
+
+                    rows.sort(function(a, b) {
+                        var aCell = a.cells[columnIndex];
+                        var bCell = b.cells[columnIndex];
+
+                        // Safety check
+                        if (!aCell || !bCell) {
+                            console.warn("One of the cells is undefined:", aCell, bCell);
+                            return 0;
+                        }
+
+                        var aText = aCell.textContent.trim();
+                        var bText = bCell.textContent.trim();
+
+                        // Attempt to parse as numbers
+                        var aNum = parseFloat(aText.replace(/[^0-9.-]+/g,""));
+                        var bNum = parseFloat(bText.replace(/[^0-9.-]+/g,""));
+
+                        if (!isNaN(aNum) && !isNaN(bNum)) {
+                            return currentSort.asc ? aNum - bNum : bNum - aNum;
+                        } else {
+                            return currentSort.asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+                        }
+                    });
+
+                    // Remove existing rows
+                    while (tbody.firstChild) {
+                        tbody.removeChild(tbody.firstChild);
+                    }
+
+                    // Re-add sorted rows
+                    rows.forEach(function(row) {
+                        tbody.appendChild(row);
+                    });
+
+                    // Update sort indicators
+                    updateSortIndicators(table, columnIndex, currentSort.asc);
+                }
+
+                function updateSortIndicators(table, sortedColumn, asc) {
+                    var headers = table.tHead.rows[0].cells;
+                    for (var i = 0; i < headers.length; i++) {
+                        var indicator = headers[i].querySelector(".sort-indicator");
+                        if (i === sortedColumn) {
+                            indicator.textContent = asc ? "↑" : "↓";
+                        } else {
+                            indicator.textContent = "⇅";
+                        }
+                    }
                 }
 
                 function highlightFeatures(features) {
@@ -430,7 +511,44 @@
                 });
 
                 function applyFilters() {
-                    querySelectedLocations();
+                    selectedLocations = []; // Reset selected locations
+                    map.layers.forEach(function(layer) {
+                        const query = new Query();
+                        const whereClause = buildWhereClause(layer);
+                        query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
+                        query.returnGeometry = false;
+                        query.outFields = ["*"];
+                        
+                        layer.queryFeatureCount(query).then(function(count) {
+                            layer.visible = count > 0;
+                        }).catch(function(error) {
+                            console.error("Query count failed: ", error);
+                            layer.visible = false;
+                        });
+                    });
+                }
+
+                function buildWhereClause(layer) {
+                    const whereClause = [];
+                    const dataType = document.getElementById("dataTypeFilter").value;
+                    const years = getSelectedYears();
+                    const period = document.getElementById("periodFilter").value;
+                    const street = document.getElementById("streetFilter").value;
+
+                    if (dataType !== "All") {
+                        whereClause.push("Data_Type = '" + dataType + "'");
+                    }
+                    if (years.length > 0 && !years.includes("All")) {
+                        whereClause.push("Year IN (" + years.join(",") + ")");
+                    }
+                    if (period !== "All") {
+                        whereClause.push("Period = '" + period + "'");
+                    }
+                    if (street) {
+                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
+                    }
+
+                    return whereClause;
                 }
 
                 // Populate year filter options
@@ -617,7 +735,7 @@
                     }
 
                     // Adjust the zoom level more precisely
-                    view.goTo(extent.expand(0,1)).then(function() {
+                    view.goTo(extent.expand(0.5,1)).then(function() {
                         // Add a delay before taking the screenshot
                         setTimeout(function() {
                             view.takeScreenshot({ 
