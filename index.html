@@ -127,6 +127,30 @@
         #yearFilter::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
+        /* Autocomplete container */
+        .autocomplete-items {
+            position: absolute;
+            border: 1px solid #d4d4d4;
+            border-bottom: none;
+            border-top: none;
+            z-index: 99;
+            /* Position the autocomplete items to be the same width as the container: */
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: white;
+        }
+        /* Style each autocomplete item */
+        .autocomplete-item {
+            padding: 10px;
+            cursor: pointer;
+        }
+        /* When hovering an item: */
+        .autocomplete-item:hover {
+            background-color: #e9e9e9;
+        }
         /* Style for validation feedback */
         input:invalid {
             border-color: red;
@@ -179,10 +203,10 @@
         </select>
         <br><br>
         <label for="streetFilter">Filter by Street:</label>
-        <input list="streetNames" id="streetFilter" placeholder="Enter street name" required>
-        <datalist id="streetNames">
-            <!-- Street options will be populated dynamically -->
-        </datalist>
+        <div style="position: relative;">
+            <input type="text" id="streetFilter" placeholder="Enter street name" autocomplete="off" required>
+            <div id="autocomplete-list" class="autocomplete-items"></div>
+        </div>
         <span id="streetError">Please select a valid street from the suggestions.</span>
     </div>
     <div id="reportingDiv">
@@ -210,67 +234,74 @@
 
                 // Function to normalize street names
                 function normalizeStreetName(street) {
-                    return street.trim().toLowerCase().replace(/\./g, "").replace(/\bstreet\b/g, "st").replace(/\bavenue\b/g, "ave").replace(/\broad\b/g, "rd");
+                    return street.trim().toLowerCase()
+                                 .replace(/\./g, "")
+                                 .replace(/\bstreet\b/g, "st")
+                                 .replace(/\bavenue\b/g, "ave")
+                                 .replace(/\broad\b/g, "rd")
+                                 .replace(/\bdrive\b/g, "dr")
+                                 .replace(/\bsuite\b/g, "ste");
                 }
 
-                // Function to populate the street datalist with unique street names
-                function populateStreetDatalist() {
-                    const streetSet = new Set(); // To store unique normalized street names
-                    const streetList = []; // To store street names with original casing
+                // Function to populate the street datalist with unique street names using Locator service
+                function setupAutocomplete() {
+                    const streetInput = document.getElementById("streetFilter");
+                    const autocompleteList = document.getElementById("autocomplete-list");
 
-                    // Iterate through each layer to extract street names
-                    map.layers.forEach(function(layer) {
-                        if (layer instanceof FeatureLayer) {
-                            // Query distinct Major_Street and Minor_Street values
-                            const query = layer.createQuery();
-                            query.where = "1=1"; // Adjust if necessary
-                            query.outFields = ["Major_Street", "Minor_Street"];
-                            query.returnDistinctValues = true;
-                            query.returnGeometry = false;
+                    streetInput.addEventListener("input", function() {
+                        const query = streetInput.value.trim();
+                        if (!query) {
+                            autocompleteList.innerHTML = "";
+                            return;
+                        }
 
-                            layer.queryFeatures(query)
-                                .then(function(result) {
-                                    result.features.forEach(function(feature) {
-                                        const majorStreet = feature.attributes.Major_Street;
-                                        const minorStreet = feature.attributes.Minor_Street;
+                        // Replace 'YOUR_API_KEY' with your actual ArcGIS Locator API key
+                        const locatorURL = `https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?text=${encodeURIComponent(query)}&category=Street&f=json&token=YOUR_API_KEY`;
 
-                                        // Process Major_Street
-                                        if (majorStreet && majorStreet.trim() !== "") {
-                                            const normalizedMajor = normalizeStreetName(majorStreet);
-                                            if (!streetSet.has(normalizedMajor)) {
-                                                streetSet.add(normalizedMajor);
-                                                streetList.push(majorStreet.trim());
-                                            }
-                                        }
-
-                                        // Process Minor_Street
-                                        if (minorStreet && minorStreet.trim() !== "") {
-                                            const normalizedMinor = normalizeStreetName(minorStreet);
-                                            if (!streetSet.has(normalizedMinor)) {
-                                                streetSet.add(normalizedMinor);
-                                                streetList.push(minorStreet.trim());
-                                            }
-                                        }
+                        fetch(locatorURL)
+                            .then(response => response.json())
+                            .then(data => {
+                                autocompleteList.innerHTML = "";
+                                if (data.suggestions) {
+                                    data.suggestions.forEach(suggestion => {
+                                        const item = document.createElement("div");
+                                        item.classList.add("autocomplete-item");
+                                        item.textContent = suggestion.text;
+                                        item.addEventListener("click", function() {
+                                            streetInput.value = suggestion.text;
+                                            autocompleteList.innerHTML = "";
+                                            validateStreetInput();
+                                            applyFilters();
+                                        });
+                                        autocompleteList.appendChild(item);
                                     });
+                                }
+                            })
+                            .catch(error => {
+                                console.error("Error fetching suggestions:", error);
+                            });
+                    });
 
-                                    // After collecting all unique street names, populate the datalist
-                                    const datalist = document.getElementById("streetNames");
-                                    datalist.innerHTML = ""; // Clear existing options
-                                    streetList.sort(); // Sort alphabetically
-                                    streetList.forEach(function(street) {
-                                        const option = document.createElement("option");
-                                        option.value = street;
-                                        datalist.appendChild(option);
-                                    });
-                                })
-                                .catch(function(error) {
-                                    console.error("Error fetching street names from layer:", layer.title, error);
-                                });
+                    // Handle Enter key to select the top suggestion
+                    streetInput.addEventListener("keydown", function(e) {
+                        if (e.key === "Enter") {
+                            const firstItem = autocompleteList.querySelector(".autocomplete-item");
+                            if (firstItem) {
+                                e.preventDefault();
+                                firstItem.click();
+                            }
+                        }
+                    });
+
+                    // Close the autocomplete list when clicking outside
+                    document.addEventListener("click", function (e) {
+                        if (e.target !== streetInput) {
+                            autocompleteList.innerHTML = "";
                         }
                     });
                 }
 
-                // Initialize the map
+                // Function to initialize the map
                 function initMap() {
                     map = new Map({
                         basemap: "streets-navigation-vector"
@@ -310,7 +341,8 @@
                     // Add event listener for map load
                     view.when(function() {
                         console.log("Map loaded successfully. Click on a point to begin.");
-                        populateStreetDatalist(); // Populate streets after map is ready
+                        setupAutocomplete(); // Setup autocomplete after map is ready
+                        populateYearFilter(); // Populate year filter
                     });
                 }
 
@@ -319,19 +351,18 @@
                 // Function to validate and provide visual feedback for street input
                 function validateStreetInput() {
                     const streetInput = document.getElementById("streetFilter");
-                    const datalist = document.getElementById("streetNames");
-                    const options = datalist.options;
-                    const enteredValue = streetInput.value.trim().toLowerCase();
-                    let isValid = false;
-
-                    for (let i = 0; i < options.length; i++) {
-                        if (normalizeStreetName(options[i].value) === normalizeStreetName(enteredValue)) {
-                            isValid = true;
-                            break;
-                        }
-                    }
-
+                    const enteredValue = normalizeStreetName(streetInput.value);
+                    const autocompleteList = document.getElementById("autocomplete-list");
                     const streetError = document.getElementById("streetError");
+
+                    // Check if entered value matches any of the suggestions
+                    const suggestions = autocompleteList.querySelectorAll(".autocomplete-item");
+                    let isValid = false;
+                    suggestions.forEach(item => {
+                        if (normalizeStreetName(item.textContent) === enteredValue) {
+                            isValid = true;
+                        }
+                    });
 
                     if (isValid || enteredValue === "") {
                         streetInput.style.borderColor = "green";
@@ -341,26 +372,6 @@
                         streetInput.style.borderColor = "red";
                         streetError.style.display = "block";
                         streetInput.setCustomValidity("Please select a valid street from the suggestions.");
-                    }
-                }
-
-                // Function to handle Enter key press for selecting the top autocomplete option
-                function handleEnterKey(event) {
-                    if (event.key === "Enter") {
-                        const streetInput = event.target;
-                        const datalist = document.getElementById("streetNames");
-                        const options = Array.from(datalist.options).map(option => normalizeStreetName(option.value));
-                        const enteredValue = normalizeStreetName(streetInput.value);
-
-                        // Check if entered value matches any option
-                        if (!options.includes(enteredValue) && options.length > 0) {
-                            // Prevent form submission if inside a form
-                            event.preventDefault();
-
-                            // Set the input value to the first suggestion
-                            streetInput.value = datalist.options[0].value;
-                            validateStreetInput(); // Update validation visuals
-                        }
                     }
                 }
 
@@ -614,6 +625,7 @@
                 function applyFilters() {
                     selectedLocations = []; // Reset selected locations
                     map.layers.forEach(function(layer) {
+                        if (!(layer instanceof FeatureLayer)) return; // Skip non-feature layers
                         const query = new Query();
                         const whereClause = buildWhereClause(layer);
                         query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
@@ -631,7 +643,7 @@
 
                 // Function to generate PDF report
                 function generatePDF(features) {
-                    const doc = new jspdf.jsPDF({
+                    const doc = new jsPDF({
                         orientation: 'landscape',
                         unit: 'mm',
                         format: 'a4'
@@ -816,7 +828,7 @@
                                 image.src = screenshot.dataUrl;
 
                                 image.onload = function() {
-                                    var doc = new jspdf.jsPDF({
+                                    var doc = new jsPDF({
                                         orientation: "portrait",
                                         unit: "mm",
                                         format: "a4"
@@ -882,49 +894,16 @@
                 function handleEnterKey(event) {
                     if (event.key === "Enter") {
                         const streetInput = event.target;
-                        const datalist = document.getElementById("streetNames");
-                        const options = Array.from(datalist.options).map(option => normalizeStreetName(option.value));
-                        const enteredValue = normalizeStreetName(streetInput.value);
-
-                        // Check if entered value matches any option
-                        if (!options.includes(enteredValue) && options.length > 0) {
-                            // Prevent form submission if inside a form
+                        const autocompleteList = document.getElementById("autocomplete-list");
+                        const firstItem = autocompleteList.querySelector(".autocomplete-item");
+                        if (firstItem) {
                             event.preventDefault();
-
-                            // Set the input value to the first suggestion
-                            streetInput.value = datalist.options[0].value;
-                            validateStreetInput(); // Update validation visuals
+                            firstItem.click();
                         }
                     }
                 }
 
-                // Function to normalize street names
-                function normalizeStreetName(street) {
-                    return street.trim().toLowerCase()
-                                 .replace(/\./g, "")
-                                 .replace(/\bstreet\b/g, "st")
-                                 .replace(/\bavenue\b/g, "ave")
-                                 .replace(/\broad\b/g, "rd")
-                                 .replace(/\bdrive\b/g, "dr")
-                                 .replace(/\bsuite\b/g, "ste");
-                }
-
-                // Add event listeners for validation and Enter key
-                document.getElementById("streetFilter").addEventListener("input", function() {
-                    applyFilters();
-                    validateStreetInput();
-                });
-                document.getElementById("streetFilter").addEventListener("change", validateStreetInput);
-                document.getElementById("streetFilter").addEventListener("keydown", handleEnterKey);
-
-                // Add event listeners for other filters
-                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
-                document.getElementById("yearFilter").addEventListener("change", applyFilters);
-                document.getElementById("periodFilter").addEventListener("change", applyFilters);
-
-                // Populate year filter options on load
-                populateYearFilter();
-
+                // Function to populate year filter options
                 function populateYearFilter() {
                     const yearFilter = document.getElementById("yearFilter");
                     const currentYear = new Date().getFullYear();
@@ -935,6 +914,26 @@
                         yearFilter.add(option);
                     }
                 }
+
+                // Function to display attributes in the featuresDiv
+                // (Already defined above)
+
+                // Function to highlight features on the map
+                // (Already defined above)
+
+                // Add event listeners for other filters
+                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
+                document.getElementById("yearFilter").addEventListener("change", applyFilters);
+                document.getElementById("periodFilter").addEventListener("change", applyFilters);
+
+                // Add event listeners for street filter
+                const streetInputElement = document.getElementById("streetFilter");
+                streetInputElement.addEventListener("input", function() {
+                    applyFilters();
+                    validateStreetInput();
+                });
+                streetInputElement.addEventListener("change", validateStreetInput);
+                streetInputElement.addEventListener("keydown", handleEnterKey);
 
                 // Generate Report Button
                 document.getElementById("generateReportBtn").addEventListener("click", function() {
@@ -969,50 +968,6 @@
                         printMap(allFeatures);
                     });
                 });
-
-                // Function to apply filters
-                function applyFilters() {
-                    selectedLocations = []; // Reset selected locations
-                    map.layers.forEach(function(layer) {
-                        if (!(layer instanceof FeatureLayer)) return; // Skip non-feature layers
-                        const query = new Query();
-                        const whereClause = buildWhereClause(layer);
-                        query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
-                        query.returnGeometry = false;
-                        query.outFields = ["*"];
-                        
-                        layer.queryFeatureCount(query).then(function(count) {
-                            layer.visible = count > 0;
-                        }).catch(function(error) {
-                            console.error("Query count failed: ", error);
-                            layer.visible = false;
-                        });
-                    });
-                }
-
-                // Function to build where clause based on filters
-                function buildWhereClause(layer) {
-                    const whereClause = [];
-                    const dataType = document.getElementById("dataTypeFilter").value;
-                    const years = getSelectedYears();
-                    const period = document.getElementById("periodFilter").value;
-                    const street = document.getElementById("streetFilter").value;
-
-                    if (dataType !== "All") {
-                        whereClause.push("Data_Type = '" + dataType + "'");
-                    }
-                    if (years.length > 0 && !years.includes("All")) {
-                        whereClause.push("Year IN (" + years.join(",") + ")");
-                    }
-                    if (period !== "All") {
-                        whereClause.push("Period = '" + period + "'");
-                    }
-                    if (street) {
-                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
-                    }
-
-                    return whereClause;
-                }
             });
         });
     </script>
