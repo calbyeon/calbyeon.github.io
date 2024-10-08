@@ -3,17 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArcGIS Map with Filtered Layer Attribute Table and Reporting</title>
+    <title>ArcGIS Map with Authentication, Filters, and Reporting</title>
     <link rel="stylesheet" href="https://js.arcgis.com/4.28/esri/themes/light/main.css">
-    <script>
-        var dojoConfig = {
-            async: true,
-            packages: [{
-                name: "app",
-                location: window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/')) + "/app"
-            }]
-        };
-    </script>
     <script src="https://js.arcgis.com/4.28/"></script>
     
     <style>
@@ -55,6 +46,7 @@
             padding: 20px;
             box-sizing: border-box;
             box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+            display: none; /* Hidden by default */
         }
         #filterDiv {
             position: absolute;
@@ -97,6 +89,7 @@
             padding: 15px;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: none; /* Hidden by default */
         }
         #yearFilter {
             width: 100%;
@@ -165,6 +158,16 @@
             font-size: 12px;
             margin-top: 5px;
         }
+        /* Sign-in/Sign-out buttons styling */
+        #authButtons {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            z-index: 30;
+        }
+        #authButtons button {
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
@@ -213,12 +216,18 @@
         <button id="generateReportBtn">Generate Report</button>
         <button id="printMapBtn">Print Map</button>
     </div>
+    <div id="authButtons">
+        <button id="sign-in" class="btn btn-primary">Sign In</button>
+        <button id="sign-out" class="btn btn-primary" style="display: none;">Sign Out</button>
+    </div>
     <script>
         // Wait for the DOM to be fully loaded
         document.addEventListener("DOMContentLoaded", function() {
             // Load the ArcGIS modules
             var jsPDF;
             require([
+                "esri/identity/OAuthInfo",
+                "esri/identity/IdentityManager",
                 "esri/Map",
                 "esri/views/MapView",
                 "esri/layers/FeatureLayer",
@@ -226,11 +235,153 @@
                 "esri/Graphic",
                 "esri/geometry/Extent",
                 "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
-            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, jspdf) {
-                var map, view, currentLayer, selectedFeatures = [];
-                jsPDF = jspdf.jsPDF;
+            ], function (OAuthInfo, esriId, Map, MapView, FeatureLayer, Query, Graphic, Extent, jspdf) {
 
+                jsPDF = jspdf.jsPDF;
+                var map, view;
                 let selectedLocations = [];
+
+                // **IMPORTANT:** Replace 'YOUR_CLIENT_ID' with your actual ArcGIS OAuth Client ID
+                const info = new OAuthInfo({
+                    appId: "YOUR_CLIENT_ID", // Replace with your Client ID
+                    popup: true, // Set to true to open authentication in a popup window
+                    flow: "implicit" // Options: "implicit" or "authorizationCode"
+                });
+
+                esriId.registerOAuthInfos([info]);
+
+                // Check if the user is already signed in
+                esriId.checkSignInStatus(info.portalUrl + "/sharing")
+                    .then(() => {
+                        handleSignedIn();
+                    })
+                    .catch(() => {
+                        handleSignedOut();
+                    });
+
+                // Sign-in button event
+                document.getElementById("sign-in").addEventListener("click", function () {
+                    esriId.getCredential(info.portalUrl + "/sharing");
+                });
+
+                // Sign-out button event
+                document.getElementById("sign-out").addEventListener("click", function () {
+                    esriId.destroyCredentials();
+                    window.location.reload();
+                });
+
+                // Function to handle actions after signing in
+                function handleSignedIn() {
+                    // Update button visibility
+                    document.getElementById("sign-in").style.display = "none";
+                    document.getElementById("sign-out").style.display = "inline-block";
+
+                    // Initialize the map
+                    map = new Map({
+                        basemap: "streets-navigation-vector"
+                    });
+
+                    view = new MapView({
+                        container: "viewDiv",
+                        map: map,
+                        center: [-122.063686, 37.901657], // Longitude, latitude
+                        zoom: 13
+                    });
+
+                    // Feature Layers Setup
+                    var baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/PEAK_Hour_Traffic_Analytics_WFL7/FeatureServer/";
+                    var layerIds = [207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 0];
+
+                    layerIds.forEach(function(id) {
+                        var layer = new FeatureLayer({
+                            url: baseUrl + id,
+                            outFields: ["*"]
+                        });
+                        map.add(layer);
+                    });
+
+                    // Populate street autocomplete using Locator Service
+                    setupAutocomplete();
+
+                    // Populate year filter options
+                    populateYearFilter();
+
+                    // Add event listeners for filters
+                    document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
+                    document.getElementById("yearFilter").addEventListener("change", applyFilters);
+                    document.getElementById("periodFilter").addEventListener("change", applyFilters);
+
+                    // Add event listeners for street filter
+                    const streetInputElement = document.getElementById("streetFilter");
+                    streetInputElement.addEventListener("input", function() {
+                        validateStreetInput();
+                        applyFilters();
+                    });
+                    streetInputElement.addEventListener("change", validateStreetInput);
+                    streetInputElement.addEventListener("keydown", handleEnterKey);
+
+                    // Generate Report Button
+                    document.getElementById("generateReportBtn").addEventListener("click", function() {
+                        if (selectedLocations.length === 0) {
+                            alert("No locations selected. Please select locations for the report.");
+                            return;
+                        }
+
+                        var promises = selectedLocations.map(function(layer) {
+                            return queryFeatures(layer);
+                        });
+
+                        Promise.all(promises).then(function(results) {
+                            var allFeatures = results.flat();
+                            generatePDF(allFeatures);
+                        });
+                    });
+
+                    // Print Map Button
+                    document.getElementById("printMapBtn").addEventListener("click", function() {
+                        if (selectedLocations.length === 0) {
+                            alert("No locations selected. Please select locations first.");
+                            return;
+                        }
+
+                        var promises = selectedLocations.map(function(layer) {
+                            return queryFeatures(layer);
+                        });
+
+                        Promise.all(promises).then(function(results) {
+                            var allFeatures = results.flat();
+                            printMap(allFeatures);
+                        });
+                    });
+
+                    // Handle map click for feature selection
+                    view.on("click", function(event) {
+                        view.hitTest(event).then(function(response) {
+                            var layerResult = response.results.filter(function(result) {
+                                return result.graphic && result.graphic.layer && result.graphic.layer.type === "feature";
+                            })[0];
+
+                            if (layerResult) {
+                                toggleLocationSelection(layerResult.graphic.layer);
+                            }
+                        });
+                    });
+                }
+
+                // Function to handle actions after signing out
+                function handleSignedOut() {
+                    // Update button visibility
+                    document.getElementById("sign-in").style.display = "inline-block";
+                    document.getElementById("sign-out").style.display = "none";
+
+                    // Optionally, you can disable filters and reporting buttons
+                    document.getElementById("filterDiv").style.display = "none";
+                    document.getElementById("reportingDiv").style.display = "none";
+                    document.getElementById("featuresDiv").style.display = "none";
+
+                    // Display a message prompting the user to sign in
+                    document.getElementById("viewDiv").innerHTML = "<p>Please sign in to view the map.</p>";
+                }
 
                 // Function to normalize street names
                 function normalizeStreetName(street) {
@@ -243,7 +394,7 @@
                                  .replace(/\bsuite\b/g, "ste");
                 }
 
-                // Function to populate the street datalist with unique street names using Locator service
+                // Function to setup autocomplete using Esri's Locator Service
                 function setupAutocomplete() {
                     const streetInput = document.getElementById("streetFilter");
                     const autocompleteList = document.getElementById("autocomplete-list");
@@ -255,8 +406,8 @@
                             return;
                         }
 
-                        // Replace 'YOUR_API_KEY' with your actual ArcGIS Locator API key
-                        const locatorURL = `https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?text=${encodeURIComponent(query)}&category=Street&f=json&token=YOUR_API_KEY`;
+                        // **IMPORTANT:** Replace 'YOUR_LOCATOR_API_KEY' with your actual ArcGIS Locator Service API Key
+                        const locatorURL = `https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?text=${encodeURIComponent(query)}&category=Street&f=json&token=YOUR_LOCATOR_API_KEY`;
 
                         fetch(locatorURL)
                             .then(response => response.json())
@@ -301,53 +452,6 @@
                     });
                 }
 
-                // Function to initialize the map
-                function initMap() {
-                    map = new Map({
-                        basemap: "streets-navigation-vector"
-                    });
-
-                    view = new MapView({
-                        container: "viewDiv",
-                        map: map,
-                        center: [-122.063686, 37.901657],
-                        zoom: 13
-                    });
-
-                    var baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/PEAK_Hour_Traffic_Analytics_WFL7/FeatureServer/";
-                    var layerIds = [207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 0];
-
-                    layerIds.forEach(function(id) {
-                        var layer = new FeatureLayer({
-                            url: baseUrl + id,
-                            outFields: ["*"]
-                        });
-                        map.add(layer);
-                    });
-
-                    // Add event listener for map click
-                    view.on("click", function(event) {
-                        view.hitTest(event).then(function(response) {
-                            var layerResult = response.results.filter(function(result) {
-                                return result.graphic && result.graphic.layer && result.graphic.layer.type === "feature";
-                            })[0];
-
-                            if (layerResult) {
-                                toggleLocationSelection(layerResult.graphic.layer);
-                            }
-                        });
-                    });
-
-                    // Add event listener for map load
-                    view.when(function() {
-                        console.log("Map loaded successfully. Click on a point to begin.");
-                        setupAutocomplete(); // Setup autocomplete after map is ready
-                        populateYearFilter(); // Populate year filter
-                    });
-                }
-
-                initMap();
-
                 // Function to validate and provide visual feedback for street input
                 function validateStreetInput() {
                     const streetInput = document.getElementById("streetFilter");
@@ -372,6 +476,19 @@
                         streetInput.style.borderColor = "red";
                         streetError.style.display = "block";
                         streetInput.setCustomValidity("Please select a valid street from the suggestions.");
+                    }
+                }
+
+                // Function to handle Enter key press for selecting the top autocomplete option
+                function handleEnterKey(event) {
+                    if (event.key === "Enter") {
+                        const streetInput = event.target;
+                        const autocompleteList = document.getElementById("autocomplete-list");
+                        const firstItem = autocompleteList.querySelector(".autocomplete-item");
+                        if (firstItem) {
+                            event.preventDefault();
+                            firstItem.click();
+                        }
                     }
                 }
 
@@ -401,6 +518,13 @@
 
                     Promise.all(promises).then(function(results) {
                         var allFeatures = results.flat();
+                        if (allFeatures.length > 0) {
+                            document.getElementById("featuresDiv").style.display = "block";
+                            document.getElementById("reportingDiv").style.display = "block";
+                        } else {
+                            document.getElementById("featuresDiv").style.display = "none";
+                            document.getElementById("reportingDiv").style.display = "none";
+                        }
                         displayAttributes(allFeatures);
                         highlightFeatures(allFeatures);
                     });
@@ -441,31 +565,16 @@
                 function queryFeatures(layer) {
                     var query = new Query();
                     var whereClause = buildWhereClause(layer);
-                    
-                    var dataType = document.getElementById("dataTypeFilter").value;
-                    var years = getSelectedYears();
-                    var period = document.getElementById("periodFilter").value;
-                    var street = document.getElementById("streetFilter").value;
 
-                    if (dataType !== "All") {
-                        whereClause.push("Data_Type = '" + dataType + "'");
-                    }
-                    if (years.length > 0 && !years.includes("All")) {
-                        whereClause.push("Year IN (" + years.join(",") + ")");
-                    }
-                    if (period !== "All") {
-                        whereClause.push("Period = '" + period + "'");
-                    }
-                    if (street) {
-                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
-                    }
-                    
                     query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
                     query.outFields = ["*"];
                     query.returnGeometry = true;
 
                     return layer.queryFeatures(query).then(function(result) {
                         return result.features;
+                    }).catch(function(error) {
+                        console.error("Error querying features from layer:", layer.title, error);
+                        return [];
                     });
                 }
 
@@ -475,7 +584,7 @@
                     featuresDiv.innerHTML = "";
 
                     if (features.length === 0) {
-                        featuresDiv.innerHTML = "No features found in this layer.";
+                        featuresDiv.innerHTML = "No features found in the selected layers.";
                         featuresDiv.style.display = "block";
                         return;
                     }
@@ -487,7 +596,7 @@
                     var columnsWithValues = {};
                     var excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
                     features.forEach(function(feature) {
-                        for (let attr in feature.attributes) { // Changed var to let
+                        for (let attr in feature.attributes) {
                             if (feature.attributes.hasOwnProperty(attr) && 
                                 feature.attributes[attr] !== null && 
                                 !excludedFields.includes(attr)) {
@@ -499,7 +608,7 @@
                     // Create header row
                     var headerRow = table.createTHead().insertRow();
                     var headers = [];
-                    for (let attr in features[0].attributes) { // Changed var to let
+                    for (let attr in features[0].attributes) {
                         if (features[0].attributes.hasOwnProperty(attr) && 
                             columnsWithValues[attr] && 
                             !excludedFields.includes(attr)) {
@@ -507,7 +616,7 @@
                             var headerCell = document.createElement("th");
                             headerCell.innerHTML = attr + ' <span class="sort-indicator">⇅</span>';
                             
-                            // Use let to capture the current value of attr
+                            // Add event listener for sorting
                             headerCell.addEventListener("click", function() {
                                 const columnIndex = headers.indexOf(attr);
                                 sortTable(table, columnIndex, this);
@@ -602,6 +711,7 @@
 
                 // Function to highlight features on the map
                 function highlightFeatures(features) {
+                    if (!view) return; // Ensure the map view exists
                     view.graphics.removeAll();
                     features.forEach(function(feature) {
                         var graphic = new Graphic({
@@ -635,7 +745,7 @@
                         layer.queryFeatureCount(query).then(function(count) {
                             layer.visible = count > 0;
                         }).catch(function(error) {
-                            console.error("Query count failed: ", error);
+                            console.error("Query count failed for layer:", layer.title, error);
                             layer.visible = false;
                         });
                     });
@@ -643,6 +753,11 @@
 
                 // Function to generate PDF report
                 function generatePDF(features) {
+                    if (!features || features.length === 0) {
+                        alert("No features to include in the report.");
+                        return;
+                    }
+
                     const doc = new jsPDF({
                         orientation: 'landscape',
                         unit: 'mm',
@@ -662,7 +777,7 @@
                     doc.setFont(bodyFont, 'normal');
                     doc.setFontSize(8);
                     
-                    const excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W", "Intersection_Traffic_Volumes"];
+                    const excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
                     const attributes = Object.keys(features[0].attributes)
                         .filter(attr => !excludedFields.includes(attr));
 
@@ -890,19 +1005,6 @@
                     });
                 }
 
-                // Function to handle Enter key press for selecting the top autocomplete option
-                function handleEnterKey(event) {
-                    if (event.key === "Enter") {
-                        const streetInput = event.target;
-                        const autocompleteList = document.getElementById("autocomplete-list");
-                        const firstItem = autocompleteList.querySelector(".autocomplete-item");
-                        if (firstItem) {
-                            event.preventDefault();
-                            firstItem.click();
-                        }
-                    }
-                }
-
                 // Function to populate year filter options
                 function populateYearFilter() {
                     const yearFilter = document.getElementById("yearFilter");
@@ -914,62 +1016,8 @@
                         yearFilter.add(option);
                     }
                 }
-
-                // Function to display attributes in the featuresDiv
-                // (Already defined above)
-
-                // Function to highlight features on the map
-                // (Already defined above)
-
-                // Add event listeners for other filters
-                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
-                document.getElementById("yearFilter").addEventListener("change", applyFilters);
-                document.getElementById("periodFilter").addEventListener("change", applyFilters);
-
-                // Add event listeners for street filter
-                const streetInputElement = document.getElementById("streetFilter");
-                streetInputElement.addEventListener("input", function() {
-                    applyFilters();
-                    validateStreetInput();
-                });
-                streetInputElement.addEventListener("change", validateStreetInput);
-                streetInputElement.addEventListener("keydown", handleEnterKey);
-
-                // Generate Report Button
-                document.getElementById("generateReportBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations for the report.");
-                        return;
-                    }
-
-                    var promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
-                    });
-
-                    Promise.all(promises).then(function(results) {
-                        var allFeatures = results.flat();
-                        generatePDF(allFeatures);
-                    });
-                });
-
-                // Print Map Button
-                document.getElementById("printMapBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations first.");
-                        return;
-                    }
-
-                    var promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
-                    });
-
-                    Promise.all(promises).then(function(results) {
-                        var allFeatures = results.flat();
-                        printMap(allFeatures);
-                    });
-                });
             });
-        });
-    </script>
+        })
+        </script>
 </body>
 </html>
