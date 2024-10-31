@@ -235,6 +235,11 @@
                 var map, view, currentLayer, selectedFeatures = [];
                 jsPDF = jspdf.jsPDF;
 
+                const serviceUrl = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer";
+                const locator = new Locator({
+                            url: "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
+                        });
+
                 let selectedLocations = [];
 
                 // Function to normalize street names
@@ -248,13 +253,13 @@
                                  .replace(/\bsuite\b/g, "ste");
                 }
 
+                
+
                 // Function to populate the street datalist with unique street names using Locator service
                 function setupAutocomplete() {
                         const streetInput = document.getElementById("streetFilter");
                         const autocompleteList = document.getElementById("autocomplete-list");
-                        const locator = new Locator({
-                            url: "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
-                        });
+                        
 
                         streetInput.addEventListener("input", function() {
                             const query = streetInput.value.trim();
