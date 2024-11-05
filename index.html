@@ -303,11 +303,16 @@
                     }).then(function(results) {
                         const suggestionsList = document.getElementById("streetSuggestions");
                         suggestionsList.innerHTML = "";
-                        results.suggestions.forEach(function(result) {
-                            const option = document.createElement("option");
-                            option.value = result.text;
-                            suggestionsList.appendChild(option);
-                        });
+
+                        if (results && results.suggestions) { // Check for defined results
+                            results.suggestions.forEach(function(result) {
+                                const option = document.createElement("option");
+                                option.value = result.text;
+                                suggestionsList.appendChild(option);
+                            });
+                        } else {
+                            console.warn("No suggestions available for this input.");
+                        }
                     }).catch(function(error) {
                         console.error("Error fetching suggestions:", error);
                     });
