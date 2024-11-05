@@ -21,7 +21,7 @@
         // Restore the original define function
         window.define = originalDefine;
     </script>
-    
+
     <style>
         /* Reset and basic styles */
         html, body {
@@ -187,7 +187,9 @@
         <br><br>
         <label for="streetFilter">Filter by Street:</label>
         <div style="position: relative;">
-            <input type="text" id="streetFilter" placeholder="Enter street name" autocomplete="off" required>
+            <!-- Include the datalist for suggestions -->
+            <input type="text" id="streetFilter" placeholder="Enter street name" autocomplete="off" required list="streetSuggestions">
+            <datalist id="streetSuggestions"></datalist>
         </div>
         <span id="streetError">Please enter a valid street name.</span>
     </div>
@@ -206,17 +208,22 @@
                 "esri/rest/support/Query",
                 "esri/Graphic",
                 "esri/geometry/Extent",
+                "esri/config",
                 "esri/rest/locator"
-            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, locator) {
-                var map, view, currentLayer, selectedFeatures = [];
+            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, esriConfig, locator) {
+                let map, view, currentLayer;
+                let selectedFeatures = [];
                 const { jsPDF } = window.jspdf;
 
                 let selectedLocations = [];
-                var streetGeometry = null; // Store the street geometry for spatial filtering
+                let streetGeometry = null; // Store the street geometry for spatial filtering
 
-                // Create a Locator instance
-                apiKey = AAPTxy8BH1VEsoebNVZXo8HurLui_STsjJZwVQToLsCDPQx7ohZyuOoGMcsvIkId4vJlUZcHaijwA7et5cSa91cib9PykJP7_7MR99iFaH6AtJvyDH8XA2oGolZnnzZIkb-fN-7tTH3l2KZwKC_cca_VYZIR3e-pdkpV-xypBdv6E5haJpp0jj0mrm1OJRdzE_EGT4wQBEPYKhS5xvKcAT9NmnBCaaDcaaShUVMyqk87XOxm2ICjG0KPrzdlFl1prtcrAT1_Npd6rvJT ;
-                var locatorUrl = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer?token=" + apiKey;
+                // Set the API key
+                const apiKey = "AAPTxy8BH1VEsoebNVZXo8HurLui_STsjJZwVQToLsCDPQx7ohZyuOoGMcsvIkId4vJlUZcHaijwA7et5cSa91cib9PykJP7_7MR99iFaH6AtJvyDH8XA2oGolZnnzZIkb-fN-7tTH3l2KZwKC_cca_VYZIR3e-pdkpV-xypBdv6E5haJpp0jj0mrm1OJRdzE_EGT4wQBEPYKhS5xvKcAT9NmnBCaaDcaaShUVMyqk87XOxm2ICjG0KPrzdlFl1prtcrAT1_Npd6rvJT"; // Replace with your actual API key
+                esriConfig.apiKey = apiKey;
+
+                // Define the geocoding service URL
+                const geocodingServiceUrl = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer";
 
                 // Function to initialize the map
                 function initMap() {
@@ -231,7 +238,7 @@
                         zoom: 13
                     });
 
-                    var baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/PEAK_Hour_Traffic_Analytics_WFL7/FeatureServer/";
+                    var baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/PEAK_Hour_Traffic_Analytics_WFL7/FeatureServer";
                     var layerIds = [207, 206, 205, 204, 203, 202, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 0];
 
                     layerIds.forEach(function(id) {
@@ -279,9 +286,36 @@
                     }
                 }
 
+                // Function to fetch street suggestions
+                function fetchStreetSuggestions() {
+                    const streetInput = document.getElementById("streetFilter").value;
+                    if (streetInput.length < 3) {
+                        // Clear suggestions if input is less than 3 characters
+                        document.getElementById("streetSuggestions").innerHTML = "";
+                        return;
+                    }
+
+                    locator.suggestLocations(geocodingServiceUrl, {
+                        text: streetInput,
+                        maxSuggestions: 5,
+                        countryCode: "US",
+                        category: "Address"
+                    }).then(function(results) {
+                        const suggestionsList = document.getElementById("streetSuggestions");
+                        suggestionsList.innerHTML = "";
+                        results.suggestions.forEach(function(result) {
+                            const option = document.createElement("option");
+                            option.value = result.text;
+                            suggestionsList.appendChild(option);
+                        });
+                    }).catch(function(error) {
+                        console.error("Error fetching suggestions:", error);
+                    });
+                }
+
                 // Function to geocode the street name
                 function geocodeStreet(streetName) {
-                    locator.addressToLocations(locatorUrl, {
+                    locator.addressToLocations(geocodingServiceUrl, {
                         address: {
                             SingleLine: streetName
                         },
@@ -314,6 +348,17 @@
                         streetInput.style.borderColor = "green";
                         streetError.style.display = "none";
                     }
+                }
+
+                // Debounce function to limit the rate of function calls
+                function debounce(func, delay) {
+                    let debounceTimer;
+                    return function() {
+                        const context = this;
+                        const args = arguments;
+                        clearTimeout(debounceTimer);
+                        debounceTimer = setTimeout(() => func.apply(context, args), delay);
+                    };
                 }
 
                 // Function to toggle location selection
@@ -835,11 +880,15 @@
 
                 // Add event listeners for street filter
                 const streetInputElement = document.getElementById("streetFilter");
-                streetInputElement.addEventListener("input", function() {
+                streetInputElement.addEventListener("input", debounce(function() {
+                    fetchStreetSuggestions();
+                    validateStreetInput();
+                }, 300));
+
+                streetInputElement.addEventListener("change", function() {
                     onStreetInputChange();
                     validateStreetInput();
                 });
-                streetInputElement.addEventListener("change", validateStreetInput);
 
                 // Generate Report Button
                 document.getElementById("generateReportBtn").addEventListener("click", function() {
@@ -882,6 +931,6 @@
                 });
             });
         });
-        </script>
+    </script>
 </body>
 </html>
