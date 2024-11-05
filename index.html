@@ -3,20 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArcGIS Map with Filtered Layer Attribute Table and Reporting</title>
+    <title>ArcGIS Traffic Analytics Map</title>
+    <!-- ArcGIS CSS -->
     <link rel="stylesheet" href="https://js.arcgis.com/4.28/esri/themes/light/main.css">
-    <script>
-        var dojoConfig = {
-            async: true,
-            packages: [{
-                name: "app",
-                location: window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/')) + "/app"
-            }]
-        };
-    </script>
+    <!-- ArcGIS JavaScript API -->
     <script src="https://js.arcgis.com/4.28/"></script>
+    <!-- Temporarily Disable AMD define for jsPDF -->
+    <script>
+        // Save the original define function
+        var originalDefine = window.define;
+        // Disable define to prevent jsPDF from registering as an AMD module
+        window.define = undefined;
+    </script>
+    <!-- jsPDF Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        // Restore the original define function
+        window.define = originalDefine;
+    </script>
     
     <style>
+        /* Reset and basic styles */
         html, body {
             height: 100%;
             width: 100%;
@@ -127,30 +134,6 @@
         #yearFilter::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
-        /* Autocomplete container */
-        .autocomplete-items {
-            position: absolute;
-            border: 1px solid #d4d4d4;
-            border-bottom: none;
-            border-top: none;
-            z-index: 1000;
-            /* Position the autocomplete items to be the same width as the container: */
-            top: 100%;
-            left: 0;
-            right: 0;
-            max-height: 200px;
-            overflow-y: auto;
-            background-color: white;
-        }
-        /* Style each autocomplete item */
-        .autocomplete-item {
-            padding: 10px;
-            cursor: pointer;
-        }
-        /* When hovering an item: */
-        .autocomplete-item:hover {
-            background-color: #e9e9e9;
-        }
         /* Style for validation feedback */
         input:invalid {
             border-color: red;
@@ -205,9 +188,8 @@
         <label for="streetFilter">Filter by Street:</label>
         <div style="position: relative;">
             <input type="text" id="streetFilter" placeholder="Enter street name" autocomplete="off" required>
-            <div id="autocomplete-list" class="autocomplete-items"></div>
         </div>
-        <span id="streetError">Please select a valid street from the suggestions.</span>
+        <span id="streetError">Please enter a valid street name.</span>
     </div>
     <div id="reportingDiv">
         <button id="generateReportBtn">Generate Report</button>
@@ -217,10 +199,6 @@
         // Wait for the DOM to be fully loaded
         document.addEventListener("DOMContentLoaded", function() {
             // Load the ArcGIS modules
-            var jsPDF;
-            require(["esri/config"], function(esriConfig) {
-                esriConfig.apiKey = "AAPTxy8BH1VEsoebNVZXo8HurLui_STsjJZwVQToLsCDPQx7ohZyuOoGMcsvIkId4vJlUZcHaijwA7et5cSa91cib9PykJP7_7MR99iFaH6AtJvyDH8XA2oGolZnnzZIkb-fN-7tTH3l2KZwKC_cca_VYZIR3e-pdkpV-xypBdv6E5haJpp0jj0mrm1OJRdzE_EGT4wQBEPYKhS5xvKcAT9NmnBCaaDcaaShUVMyqk87XOxm2ICjG0KPrzdlFl1prtcrAT1_Npd6rvJT";
-            });
             require([
                 "esri/Map",
                 "esri/views/MapView",
@@ -228,80 +206,17 @@
                 "esri/rest/support/Query",
                 "esri/Graphic",
                 "esri/geometry/Extent",
-                "esri/rest/Locator",
-                "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
-            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, jspdf, Locator) {
-
+                "esri/rest/locator"
+            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, locator) {
                 var map, view, currentLayer, selectedFeatures = [];
-                jsPDF = jspdf.jsPDF;
-
-                const serviceUrl = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer";
-                const locator = new Locator({
-                            url: "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"
-                        });
+                const { jsPDF } = window.jspdf;
 
                 let selectedLocations = [];
+                var streetGeometry = null; // Store the street geometry for spatial filtering
 
-                // Function to normalize street names
-                function normalizeStreetName(street) {
-                    return street.trim().toLowerCase()
-                                 .replace(/\./g, "")
-                                 .replace(/\bstreet\b/g, "st")
-                                 .replace(/\bavenue\b/g, "ave")
-                                 .replace(/\broad\b/g, "rd")
-                                 .replace(/\bdrive\b/g, "dr")
-                                 .replace(/\bsuite\b/g, "ste");
-                }
-
-                
-
-                // Function to populate the street datalist with unique street names using Locator service
-                function setupAutocomplete() {
-                        const streetInput = document.getElementById("streetFilter");
-                        const autocompleteList = document.getElementById("autocomplete-list");
-                        
-
-                        streetInput.addEventListener("input", function() {
-                            const query = streetInput.value.trim();
-                            if (!query) {
-                                autocompleteList.innerHTML = "";
-                                return;
-                            }
-
-                            locator.suggestLocations({
-                                url: serviceUrl,
-                                text: query,
-                                maxSuggestions: 5,
-                                location: view.center,
-                                maxDistance: 50000, // Search within 50 km
-                                categories: ["Address", "Street Name"]
-                            }).then(function(suggestions) {
-                                autocompleteList.innerHTML = "";
-                                suggestions.forEach(function(suggestion) {
-                                    const item = document.createElement("div");
-                                    item.classList.add("autocomplete-item");
-                                    item.textContent = suggestion.text;
-                                    item.addEventListener("click", function() {
-                                        streetInput.value = suggestion.text;
-                                        autocompleteList.innerHTML = "";
-                                        validateStreetInput();
-                                        applyFilters();
-                                    });
-                                    autocompleteList.appendChild(item);
-                                });
-                            }).catch(function(error) {
-                                console.error("Error fetching suggestions:", error);
-                            });
-                        });
-
-                        // Close the autocomplete list when clicking outside
-                        document.addEventListener("click", function(e) {
-                            if (e.target !== streetInput) {
-                                autocompleteList.innerHTML = "";
-                            }
-                        });
-                    
-                }
+                // Create a Locator instance
+                apiKey = AAPTxy8BH1VEsoebNVZXo8HurLui_STsjJZwVQToLsCDPQx7ohZyuOoGMcsvIkId4vJlUZcHaijwA7et5cSa91cib9PykJP7_7MR99iFaH6AtJvyDH8XA2oGolZnnzZIkb-fN-7tTH3l2KZwKC_cca_VYZIR3e-pdkpV-xypBdv6E5haJpp0jj0mrm1OJRdzE_EGT4wQBEPYKhS5xvKcAT9NmnBCaaDcaaShUVMyqk87XOxm2ICjG0KPrzdlFl1prtcrAT1_Npd6rvJT ;
+                var locatorUrl = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer?token=" + apiKey;
 
                 // Function to initialize the map
                 function initMap() {
@@ -312,7 +227,7 @@
                     view = new MapView({
                         container: "viewDiv",
                         map: map,
-                        center: [-122.063686, 37.901657],
+                        center: [-122.063686, 37.901657], // Longitude, latitude
                         zoom: 13
                     });
 
@@ -337,34 +252,67 @@
                             if (layerResult) {
                                 toggleLocationSelection(layerResult.graphic.layer);
                             }
+                        }).catch(function(error) {
+                            console.error("Error during hitTest:", error);
                         });
                     });
 
                     // Add event listener for map load
                     view.when(function() {
                         console.log("Map loaded successfully. Click on a point to begin.");
-                        setupAutocomplete(); // Setup autocomplete after map is ready
                         populateYearFilter(); // Populate year filter
+                    }).catch(function(error) {
+                        console.error("Error loading the map:", error);
                     });
                 }
 
                 initMap();
 
-                // Function to validate and provide visual feedback for street input
+                // Function to handle street input changes
+                function onStreetInputChange() {
+                    const streetInput = document.getElementById("streetFilter").value;
+                    if (streetInput) {
+                        geocodeStreet(streetInput);
+                    } else {
+                        streetGeometry = null;
+                        applyFilters();
+                    }
+                }
+
+                // Function to geocode the street name
+                function geocodeStreet(streetName) {
+                    locator.addressToLocations(locatorUrl, {
+                        address: {
+                            SingleLine: streetName
+                        },
+                        maxLocations: 1,
+                        outFields: ["*"]
+                    }).then(function(results) {
+                        if (results.length > 0) {
+                            streetGeometry = results[0].extent;
+                            applyFilters();
+                        } else {
+                            alert("Street not found. Please enter a valid street name.");
+                            streetGeometry = null;
+                            applyFilters();
+                        }
+                    }).catch(function(error) {
+                        console.error("Geocoding error:", error);
+                        streetGeometry = null;
+                        applyFilters();
+                    });
+                }
+
+                // Function to validate street input
                 function validateStreetInput() {
                     const streetInput = document.getElementById("streetFilter");
-                    const enteredValue = streetInput.value.trim();
                     const streetError = document.getElementById("streetError");
-
-                    if (enteredValue) {
-                        // Assume valid if input is not empty (since suggestions are handled by Locator)
+                    if (streetInput.value.trim() === "") {
+                        streetInput.style.borderColor = "red";
+                        streetError.style.display = "block";
+                    } else {
                         streetInput.style.borderColor = "green";
                         streetError.style.display = "none";
-                        streetInput.setCustomValidity("");
-                    } else {
-                        streetInput.style.borderColor = "";
-                        streetError.style.display = "none";
-                        streetInput.setCustomValidity("");
                     }
                 }
 
@@ -383,7 +331,6 @@
                 // Function to update location selection UI
                 function updateLocationSelectionUI() {
                     console.log("Selected locations:", selectedLocations.length);
-                    // You can add more UI updates here, like updating a list of selected locations
                 }
 
                 // Function to query selected locations
@@ -396,6 +343,8 @@
                         var allFeatures = results.flat();
                         displayAttributes(allFeatures);
                         highlightFeatures(allFeatures);
+                    }).catch(function(error) {
+                        console.error("Error querying selected locations:", error);
                     });
                 }
 
@@ -405,7 +354,6 @@
                     const dataType = document.getElementById("dataTypeFilter").value;
                     const years = getSelectedYears();
                     const period = document.getElementById("periodFilter").value;
-                    const street = document.getElementById("streetFilter").value;
 
                     if (dataType !== "All") {
                         whereClause.push("Data_Type = '" + dataType + "'");
@@ -415,9 +363,6 @@
                     }
                     if (period !== "All") {
                         whereClause.push("Period = '" + period + "'");
-                    }
-                    if (street) {
-                        whereClause.push("Major_Street LIKE '%" + street + "%' OR Minor_Street LIKE '%" + street + "%'");
                     }
 
                     return whereClause;
@@ -431,9 +376,10 @@
                 }
 
                 // Function to query features from a layer based on filters
-                function queryFeatures(layer, streetGeometry) {
-                    const whereClause = buildWhereClause(layer);
-                    const query = layer.createQuery();
+                function queryFeatures(layer) {
+                    var query = new Query();
+                    var whereClause = buildWhereClause(layer);
+
                     query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
                     query.outFields = ["*"];
                     query.returnGeometry = true;
@@ -445,9 +391,11 @@
 
                     return layer.queryFeatures(query).then(function(result) {
                         return result.features;
+                    }).catch(function(error) {
+                        console.error("Error querying features from layer:", error);
+                        return [];
                     });
                 }
-
 
                 // Function to display attributes in the featuresDiv
                 function displayAttributes(features) {
@@ -467,7 +415,7 @@
                     var columnsWithValues = {};
                     var excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
                     features.forEach(function(feature) {
-                        for (let attr in feature.attributes) { // Changed var to let
+                        for (let attr in feature.attributes) {
                             if (feature.attributes.hasOwnProperty(attr) && 
                                 feature.attributes[attr] !== null && 
                                 !excludedFields.includes(attr)) {
@@ -479,7 +427,7 @@
                     // Create header row
                     var headerRow = table.createTHead().insertRow();
                     var headers = [];
-                    for (let attr in features[0].attributes) { // Changed var to let
+                    for (let attr in features[0].attributes) {
                         if (features[0].attributes.hasOwnProperty(attr) && 
                             columnsWithValues[attr] && 
                             !excludedFields.includes(attr)) {
@@ -487,7 +435,6 @@
                             var headerCell = document.createElement("th");
                             headerCell.innerHTML = attr + ' <span class="sort-indicator">⇅</span>';
                             
-                            // Use let to capture the current value of attr
                             headerCell.addEventListener("click", function() {
                                 const columnIndex = headers.indexOf(attr);
                                 sortTable(table, columnIndex, this);
@@ -533,7 +480,6 @@
                         var aCell = a.cells[columnIndex];
                         var bCell = b.cells[columnIndex];
 
-                        // Safety check
                         if (!aCell || !bCell) {
                             console.warn("One of the cells is undefined:", aCell, bCell);
                             return 0;
@@ -542,7 +488,6 @@
                         var aText = aCell.textContent.trim();
                         var bText = bCell.textContent.trim();
 
-                        // Attempt to parse as numbers
                         var aNum = parseFloat(aText.replace(/[^0-9.-]+/g,""));
                         var bNum = parseFloat(bText.replace(/[^0-9.-]+/g,""));
 
@@ -553,17 +498,14 @@
                         }
                     });
 
-                    // Remove existing rows
                     while (tbody.firstChild) {
                         tbody.removeChild(tbody.firstChild);
                     }
 
-                    // Re-add sorted rows
                     rows.forEach(function(row) {
                         tbody.appendChild(row);
                     });
 
-                    // Update sort indicators
                     updateSortIndicators(table, columnIndex, currentSort.asc);
                 }
 
@@ -603,43 +545,20 @@
 
                 // Function to apply filters and update layer visibility
                 function applyFilters() {
-                    const street = document.getElementById("streetFilter").value;
-                    if (street) {
-                        locator.addressToLocations({
-                            url: serviceUrl,
-                            address: { SingleLine: street },
-                            maxLocations: 1,
-                            outFields: ["*"]
-                        }).then(function(candidates) {
-                            if (candidates.length > 0) {
-                                const streetGeometry = candidates[0].extent || candidates[0].location;
-                                performFiltering(streetGeometry);
-                            } else {
-                                console.error("No geometry found for the selected street.");
-                                performFiltering(null);
-                            }
-                        }).catch(function(error) {
-                            console.error("Error retrieving street geometry:", error);
-                            performFiltering(null);
-                        });
-                    } else {
-                        performFiltering(null);
-                    }
-                }
-
-                function performFiltering(streetGeometry) {
+                    selectedLocations = []; // Reset selected locations
                     map.layers.forEach(function(layer) {
-                        if (!(layer instanceof FeatureLayer)) return;
+                        if (!(layer instanceof FeatureLayer)) return; // Skip non-feature layers
+                        const query = new Query();
                         const whereClause = buildWhereClause(layer);
-                        const query = layer.createQuery();
                         query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
                         query.returnGeometry = false;
                         query.outFields = ["*"];
+
                         if (streetGeometry) {
                             query.geometry = streetGeometry;
                             query.spatialRelationship = "intersects";
                         }
-
+                        
                         layer.queryFeatureCount(query).then(function(count) {
                             layer.visible = count > 0;
                         }).catch(function(error) {
@@ -649,9 +568,13 @@
                     });
                 }
 
-
                 // Function to generate PDF report
                 function generatePDF(features) {
+                    if (!features || features.length === 0) {
+                        alert("No features selected for the report.");
+                        return;
+                    }
+
                     const doc = new jsPDF({
                         orientation: 'landscape',
                         unit: 'mm',
@@ -709,31 +632,22 @@
                     // Create table rows
                     doc.setFont(bodyFont, 'normal');
                     features.forEach((feature, featureIndex) => {
+                        var rowHeight = 10; // Fixed row height for simplicity
                         xPos = margins;
-                        let maxRowHeight = 0;
-
-                        // Calculate row height based on content
-                        attributes.forEach((attr, attrIndex) => {
-                            const value = feature.attributes[attr]?.toString() || "N/A";
-                            const textHeight = doc.getTextDimensions(value, { maxWidth: finalColumnWidths[attrIndex] - 2 }).h;
-                            maxRowHeight = Math.max(maxRowHeight, textHeight);
-                        });
-
-                        maxRowHeight += 2; // Add some padding
 
                         // Alternate row colors
                         doc.setFillColor(featureIndex % 2 === 0 ? 255 : 245);
-                        doc.rect(margins, yPos, tableWidth, maxRowHeight, 'F');
+                        doc.rect(margins, yPos, tableWidth, rowHeight, 'F');
 
                         attributes.forEach((attr, attrIndex) => {
                             const value = feature.attributes[attr]?.toString() || "N/A";
-                            doc.text(value, xPos + 1, yPos + 4, { 
+                            doc.text(value, xPos + 1, yPos + 7, { 
                                 maxWidth: finalColumnWidths[attrIndex] - 2,
                                 align: 'left'
                             });
                             xPos += finalColumnWidths[attrIndex];
                         });
-                        yPos += maxRowHeight;
+                        yPos += rowHeight;
 
                         // Add a new page if we're near the bottom
                         if (yPos > doc.internal.pageSize.height - 20) {
@@ -742,14 +656,14 @@
                             
                             // Repeat the header on the new page
                             doc.setFillColor(220, 220, 220);
-                            doc.rect(margins, yPos, tableWidth, 8, 'F');
+                            doc.rect(margins, yPos, tableWidth, 16, 'F');
                             doc.setFont(bodyFont, 'bold');
                             xPos = margins;
                             attributes.forEach((attr, index) => {
                                 doc.text(attr, xPos + 1, yPos + 5.5, { maxWidth: finalColumnWidths[index] - 2, align: 'left' });
                                 xPos += finalColumnWidths[index];
                             });
-                            yPos += 8;
+                            yPos += 16;
                             doc.setFont(bodyFont, 'normal');
                         }
                     });
@@ -778,7 +692,7 @@
 
                 // Function to print the map as PDF
                 function printMap(features) {
-                    if (features.length === 0) {
+                    if (!features || features.length === 0) {
                         alert("No features selected. Please select features first.");
                         return;
                     }
@@ -856,19 +770,19 @@
                                     var imgRatio = image.height / image.width;
                                     var pageRatio = maxHeight / maxWidth;
 
-                                    var imgWidth, imgHeight;
+                                    var finalWidth, finalHeight;
 
                                     if (imgRatio > pageRatio) {
-                                        imgHeight = maxHeight;
-                                        imgWidth = imgHeight / imgRatio;
+                                        finalHeight = maxHeight;
+                                        finalWidth = finalHeight / imgRatio;
                                     } else {
-                                        imgWidth = maxWidth;
-                                        imgHeight = imgWidth * imgRatio;
+                                        finalWidth = maxWidth;
+                                        finalHeight = finalWidth * imgRatio;
                                     }
 
-                                    var xOffset = (pageWidth - imgWidth) / 2;
+                                    var xOffset = (pageWidth - finalWidth) / 2;
 
-                                    doc.addImage(image, "JPEG", xOffset, 25, imgWidth, imgHeight);
+                                    doc.addImage(image, "JPEG", xOffset, 25, finalWidth, finalHeight);
                                     // Scalebar
                                     doc.setLineWidth(0.5);
                                     doc.line(margin, bottomY, margin + 50, bottomY);
@@ -884,32 +798,22 @@
                                     // Date and filters
                                     doc.setFontSize(8);
                                     var dateText = `Date: ${new Date().toLocaleDateString()}`;
-                                    var filterText = `Filters: ${document.getElementById("dataTypeFilter").value}, ${document.getElementById("yearFilter").value}, ${document.getElementById("periodFilter").value}`;
+                                    var filterText = `Filters: ${document.getElementById("dataTypeFilter").value}, ${getSelectedYears().join(", ")}, ${document.getElementById("periodFilter").value}`;
                                     
                                     doc.text(dateText, margin, pageHeight - 10);
                                     doc.text(filterText, margin, pageHeight - 5);
 
                                     doc.save("traffic_analytics_map.pdf");
                                 };
+                            }).catch(function(error) {
+                                console.error("Error taking screenshot:", error);
+                                alert("An error occurred while taking a screenshot of the map.");
                             });
                         }, 2000); // 2 second delay to ensure map is fully rendered
                     }).catch(function(error) {
                         console.error("Error while zooming to extent:", error);
                         alert("An error occurred while preparing the map for print. Please try again.");
                     });
-                }
-
-                // Function to handle Enter key press for selecting the top autocomplete option
-                function handleEnterKey(event) {
-                    if (event.key === "Enter") {
-                        const streetInput = event.target;
-                        const autocompleteList = document.getElementById("autocomplete-list");
-                        const firstItem = autocompleteList.querySelector(".autocomplete-item");
-                        if (firstItem) {
-                            event.preventDefault();
-                            firstItem.click();
-                        }
-                    }
                 }
 
                 // Function to populate year filter options
@@ -924,26 +828,18 @@
                     }
                 }
 
-                // Function to display attributes in the featuresDiv
-                // (Already defined above)
-
-                // Function to highlight features on the map
-                // (Already defined above)
-
-                // Add event listeners for other filters
+                // Add event listeners for filters
                 document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
                 document.getElementById("yearFilter").addEventListener("change", applyFilters);
                 document.getElementById("periodFilter").addEventListener("change", applyFilters);
 
                 // Add event listeners for street filter
-                // Street Filter Input
                 const streetInputElement = document.getElementById("streetFilter");
                 streetInputElement.addEventListener("input", function() {
+                    onStreetInputChange();
                     validateStreetInput();
-                    // No need to call applyFilters here, as it's handled after selection
                 });
                 streetInputElement.addEventListener("change", validateStreetInput);
-                streetInputElement.addEventListener("keydown", handleEnterKey);
 
                 // Generate Report Button
                 document.getElementById("generateReportBtn").addEventListener("click", function() {
@@ -959,6 +855,9 @@
                     Promise.all(promises).then(function(results) {
                         var allFeatures = results.flat();
                         generatePDF(allFeatures);
+                    }).catch(function(error) {
+                        console.error("Error generating report:", error);
+                        alert("An error occurred while generating the report.");
                     });
                 });
 
@@ -976,10 +875,13 @@
                     Promise.all(promises).then(function(results) {
                         var allFeatures = results.flat();
                         printMap(allFeatures);
+                    }).catch(function(error) {
+                        console.error("Error printing map:", error);
+                        alert("An error occurred while printing the map.");
                     });
                 });
             });
         });
-    </script>
+        </script>
 </body>
 </html>
