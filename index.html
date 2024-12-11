@@ -1,10 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArcGIS Map with Filtered Layer Attribute Table and Reporting</title>
-    <link rel="stylesheet" href="https://js.arcgis.com/4.28/esri/themes/light/main.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Traffic Analytics Map</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+
+    <!-- jQuery and jQuery UI for Autocomplete -->
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+
     <script>
         var dojoConfig = {
             async: true,
@@ -14,282 +21,311 @@
             }]
         };
     </script>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.21/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://js.arcgis.com/4.28/"></script>
-    
+    <script src="https://js.arcgis.com/4.30/"></script>
     <style>
-        html, body, #app-container {
-            height: 100%;
-            width: 100%;
+        html,
+        body {
             margin: 0;
             padding: 0;
-            overflow: hidden;
             font-family: Arial, sans-serif;
+            height: 100%;
+            width: 100%;
         }
+
         #app-container {
             display: flex;
             flex-direction: column;
-            height: 100%;
+            height: 100vh;
             width: 100%;
+            background: #f5f5f5;
         }
+
         #header {
+            flex: 0 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 20px;
-            background-color: #f8f8f8;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            font-size: 16px;
+            padding: 15px 20px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #ccc;
+            font-size: 18px;
             font-weight: bold;
-            z-index: 100;
-        }
-        #viewDiv {
-            flex: 1;
-            min-height: 0;
-        }
-        #featuresDiv {
-            height: 40%;
-            width: 100%;
-            background-color: white;
-            z-index: 10;
-            box-sizing: border-box;
-            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
-            top: calc(100% - 40%); 
-        }
-        .features-inner {
-            overflow: auto;
-            height: 100%;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
-        #filterDiv {
-            position: absolute;
-            top: 50px;
-            right: 20px;
-            z-index: 20;
-            background-color: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            width: 250px;
+        #main-content {
+            display: flex;
+            flex: 1 1 auto;
+            flex-direction: column;
+            overflow: hidden;
         }
+
+        #viewDiv {
+            flex: 2 1 60%;
+            position: relative;
+        }
+
+        #featuresDiv {
+            flex: 2 1 40%;
+            background-color: #ffffff;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .features-inner {
+            flex: 1 1 auto;
+            overflow: auto;
+        }
+
+        #featuresContentDiv {
+            padding: 10px;
+            box-sizing: border-box;
+            height: 100%;
+            overflow: auto;
+            background: #ffffff;
+        }
+
         .attribute-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
-            table-layout: fixed; /* Ensures columns are evenly spaced */
+            font-size: 13px;
+            table-layout: fixed;
+            background-color: #ffffff;
+            border: 1px solid #ddd;
         }
 
-        .attribute-table th {
+        .attribute-table thead th {
             position: sticky;
-            top: 0; /* Stick to the top of the features-inner div */
-            background-color: #f2f2f2;
-            z-index: 2;
+            top: 0;
+            background-color: #4b8fcf;
+            color: #fff;
             text-align: left;
             font-weight: bold;
-            border: 1px solid #ddd; /* Add border to headers */
-            padding: 8px;          /* Add padding to headers */
-            white-space: nowrap; /* Prevents header text wrapping */
-            overflow: hidden;     /* Hides overflowing header text */
-            text-overflow: ellipsis; /* Adds ellipsis to overflowing text */
-            box-sizing: border-box; /* Ensure consistent sizing with borders and padding */
-            cursor: pointer; /* Indicate that headers are clickable for sorting */
+            border: 1px solid #ccc;
+            padding: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            z-index: 10;
         }
 
-        .attribute-table th, .attribute-table td {
+        .attribute-table th,
+        .attribute-table td {
             border: 1px solid #ddd;
             padding: 8px;
             box-sizing: border-box;
+            vertical-align: middle;
+            background: #fff;
         }
 
         .attribute-table tr:nth-child(even) {
             background-color: #f9f9f9;
         }
-        #reportingDiv {
+
+        .attribute-table tbody tr:hover {
+            background-color: #e8f0fe;
+        }
+
+        #filterDiv {
             position: absolute;
-            top: 55px;
-            left: 60px;
+            top: 100px;
+            right: 20px;
             z-index: 20;
-            background-color: white;
+            background-color: #ffffff;
             padding: 15px;
             border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            width: 250px;
+            font-size: 14px;
+            border: 1px solid #ccc;
         }
-        #yearFilter {
+
+        #filterDiv label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: inline-block;
+        }
+
+        #filterDiv select,
+        #filterDiv input {
             width: 100%;
-            max-height: 100px;
-            overflow-y: auto;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            padding: 5px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+
+        #reportingDiv {
+            position: absolute;
+            top: 68px;
+            left: 70px;
+            z-index: 20;
+            background-color: #ffffff;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            font-size: 14px;
+            border: 1px solid #ccc;
+        }
+
+        #reportingDiv button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            font-size: 14px;
             border: 1px solid #ccc;
             border-radius: 4px;
-            padding: 5px;
-            background-color: white;
+            cursor: pointer;
+            background: linear-gradient(to bottom, #f7f7f7, #e2e2e2);
+            transition: background 0.3s, border-color 0.3s;
         }
-        #yearFilter option {
-            padding: 5px;
+
+        #reportingDiv button:hover {
+            background: linear-gradient(to bottom, #f0f0f0, #d9d9d9);
+            border-color: #999;
         }
-        #yearFilter option:checked {
-            background-color: #e0e0e0;
-            color: #000;
+
+        #reportingDiv button:active {
+            background: linear-gradient(to bottom, #d9d9d9, #c2c2c2);
+            border-color: #777;
         }
-        #yearFilter::-webkit-scrollbar {
-            width: 8px;
-        }
-        #yearFilter::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-        #yearFilter::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
-        }
-        #yearFilter::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-        /* Style for validation feedback */
-        input:invalid {
-            border-color: red;
-        }
-        input:valid {
-            border-color: green;
-        }
-        /* Style for the street error message */
-        #streetError {
-            color: red;
+
+        #loadingSpinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
             display: none;
+        }
+
+        #filterStatus {
+            margin-top: 10px;
+            color: #555;
             font-size: 12px;
-            margin-top: 5px;
+        }
+
+        .print-title,
+        .print-legend {
+            display: none;
+            position: absolute;
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+
+        .print-title {
+            top: 10px;
+            left: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .print-legend {
+            top: 60px;
+            left: 10px;
+            font-size: 14px;
         }
     </style>
 </head>
+
 <body>
     <div id="app-container">
         <header id="header">
             <div>City of Walnut Creek</div>
             <div>Traffic Analytics Map</div>
         </header>
-        <div id="viewDiv"></div>
-        <div id="featuresDiv">
-            <div class="features-inner" id="featuresInnerDiv">
-                <div class="features-content" id="featuresContentDiv">
-                    <!-- The table will be inserted here dynamically -->
+        <div id="main-content">
+            <div id="viewDiv">
+                <div class="print-title">City of Walnut Creek - Traffic Map</div>
+                <div class="print-legend">
+                    <strong>Legend:</strong><br>
+                    Cyan highlight = Selected feature(s)<br>
+                    Blue symbols = Other features
+                </div>
+            </div>
+            <div id="featuresDiv">
+                <div class="features-inner" id="featuresInnerDiv">
+                    <div class="features-content" id="featuresContentDiv">
+                        <table class="attribute-table" id="attributeTable">
+                            <thead></thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="28">No features match the selected filters.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
-    <div id="filterDiv">
-        <label for="dataTypeFilter">Filter by Data Type:</label>
-        <select id="dataTypeFilter">
-            <option value="All">All</option>
-            <option value="Bikes">Bikes</option>
-            <option value="Intersection Info">Intersection Info</option>
-            <option value="PHF">PHF</option>
-            <option value="Pedestrian">Pedestrian</option>
-            <option value="Heavy Vehicles">Heavy Vehicles</option>
-            <option value="Turning Movement">Turning Movement</option>
-        </select>
-        <br><br>
-        <label for="yearFilter">Filter by Year:</label>
-        <select id="yearFilter" multiple size="5">
-            <option value="All">All</option>
-            <!-- Options populated dynamically -->
-        </select>
-        <br><br>
-        <label for="periodFilter">Filter by Period:</label>
-        <select id="periodFilter">
-            <option value="All">All</option>
-            <option value="AM">AM</option>
-            <option value="MID">MID</option>
-            <option value="PM">PM</option>
-        </select>
-        <br><br>
-        <label for="streetFilter">Filter by Street:</label>
-        <input list="streetNames" id="streetFilter" placeholder="Enter street name" required>
-        <datalist id="streetNames">
-            <!-- Street options will be populated dynamically -->
-        </datalist>
-        <span id="streetError">Please select a valid street from the suggestions.</span>
+        <div id="filterDiv">
+            <div id="filterControls"></div>
+            <div id="filterStatus">If features are selected, filters apply only to them; otherwise globally. Clicking
+                empty space unselects all. All filters remove non-matching features.</div>
+        </div>
+        <div id="reportingDiv">
+            <select id="reportFormat">
+                <option value="pdf">PDF</option>
+                <option value="csv">CSV</option>
+            </select>
+            <button id="generateReportBtn" aria-label="Generate Report">Generate Report</button>
+            <button id="printMapBtn" aria-label="Export Map">Export Map</button>
+        </div>
+        <div id="loadingSpinner">
+            <img src="spinner.gif" alt="Loading..." />
+        </div>
     </div>
-    <div id="reportingDiv">
-        <button id="generateReportBtn">Generate Report</button>
-        <button id="printMapBtn">Print Map</button>
-    </div>
-    
+
     <script>
-        // Wait for the DOM to be fully loaded
-        document.addEventListener("DOMContentLoaded", function() {
-            // Load the ArcGIS modules
+        document.addEventListener("DOMContentLoaded", function () {
+            const DATA_TYPE_FIELD = "Data_Type";
+            const YEAR_FIELD = "Year";
+            const PERIOD_FIELD = "Period";
+            const MAJOR_STREETS_FIELD = "Major_Streets";
+            const MINOR_STREETS_FIELD = "Minor_Streets";
+
+            let map, view;
+            let allLayers = [];
+            let highlightHandle = null;
+            let allYears = new Set();
+
+            let currentDataType = "All";
+            let currentYears = [];
+            let currentPeriod = "All";
+            let currentStreet = "";
+
+            let selectedFeatures = [];
+            let filteredFeatures = [];
+
+            let currentHeadersToDisplay = [];
+            let currentTableData = [];
+
+            let originalViewpoint = null;
+            let streetList = [];
+
             require([
                 "esri/Map",
                 "esri/views/MapView",
                 "esri/layers/FeatureLayer",
-                "esri/rest/support/Query",
                 "esri/Graphic",
-                "esri/geometry/Extent",
-                "esri/geometry/support/webMercatorUtils"
-            ], function(Map, MapView, FeatureLayer, Query, Graphic, Extent, webMercatorUtils) {
-                let map, view, selectedFeatures = [];
-                let selectedLocations = [];
+                "esri/rest/support/Query",
+                "esri/rest/support/RelationshipQuery",
+                "esri/layers/support/FeatureFilter"
+            ], function (Map, MapView, FeatureLayer, Graphic, Query, RelationshipQuery, FeatureFilter) {
 
-                // Function to populate the street datalist with unique street names
-                function populateStreetDatalist() {
-                    const streetSet = new Set(); // To store unique normalized street names
-                    const streetList = []; // To store street names with original casing
+                init();
 
-                    // Iterate through each layer to extract street names
-                    map.layers.forEach(function(layer) {
-                        if (layer instanceof FeatureLayer) {
-                            // Query distinct Major_Street and Minor_Street values
-                            const query = layer.createQuery();
-                            query.where = "1=1"; // Adjust if necessary
-                            query.outFields = ["Major_Street", "Minor_Street"];
-                            query.returnDistinctValues = true;
-                            query.returnGeometry = false;
-
-                            layer.queryFeatures(query)
-                                .then(function(result) {
-                                    result.features.forEach(function(feature) {
-                                        const majorStreet = feature.attributes.Major_Street;
-                                        const minorStreet = feature.attributes.Minor_Street;
-
-                                        // Process Major_Street
-                                        if (majorStreet && majorStreet.trim() !== "") {
-                                            const normalizedMajor = normalizeStreetName(majorStreet);
-                                            if (!streetSet.has(normalizedMajor)) {
-                                                streetSet.add(normalizedMajor);
-                                                streetList.push(majorStreet.trim());
-                                            }
-                                        }
-
-                                        // Process Minor_Street
-                                        if (minorStreet && minorStreet.trim() !== "") {
-                                            const normalizedMinor = normalizeStreetName(minorStreet);
-                                            if (!streetSet.has(normalizedMinor)) {
-                                                streetSet.add(normalizedMinor);
-                                                streetList.push(minorStreet.trim());
-                                            }
-                                        }
-                                    });
-
-                                    // After collecting all unique street names, populate the datalist
-                                    const datalist = document.getElementById("streetNames");
-                                    datalist.innerHTML = ""; // Clear existing options
-                                    streetList.sort(); // Sort alphabetically
-                                    streetList.forEach(function(street) {
-                                        const option = document.createElement("option");
-                                        option.value = street;
-                                        datalist.appendChild(option);
-                                    });
-                                })
-                                .catch(function(error) {
-                                    console.error("Error fetching street names from layer:", layer.title, error);
-                                });
-                        }
-                    });
-                }
-
-                // Initialize the map
-                function initMap() {
-                    map = new Map({
-                        basemap: "streets-navigation-vector"
-                    });
+                async function init() {
+                    showLoadingSpinner();
+                    map = new Map({ basemap: "streets-navigation-vector" });
 
                     view = new MapView({
                         container: "viewDiv",
@@ -298,323 +334,575 @@
                         zoom: 13
                     });
 
-                    const baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/Traffic_Analysis_PEAK_WFL1/FeatureServer";
-                    const layerIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101];
+                    const baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/Aggregated_PEAK_Locations_WFL1/FeatureServer";
+                    const layerIds = Array.from({ length: 104 }, (_, i) => i);
 
-                    layerIds.forEach(function(id) {
-                        const layer = new FeatureLayer({
-                            url: `${baseUrl}/${id}`,
-                            outFields: ["*"]
-                        });
-                        map.add(layer);
-                    });
-
-                    // Add event listener for map click
-                    view.on("click", function(event) {
-                        view.hitTest(event).then(function(response) {
-                            const layerResult = response.results.filter(function(result) {
-                                return result.graphic && result.graphic.layer && result.graphic.layer.type === "feature";
-                            })[0];
-
-                            if (layerResult) {
-                                toggleLocationSelection(layerResult.graphic.layer);
-                            } else {
-                                // No features clicked; clear selections
-                                selectedLocations = [];
-                                view.graphics.removeAll();
-                                displayAttributes([]);
-                                updateLocationSelectionUI();
+                    await Promise.all(layerIds.map(async (id) => {
+                        const layerUrl = `${baseUrl}/${id}`;
+                        const isSpatial = await isSpatialLayer(layerUrl);
+                        if (isSpatial) {
+                            try {
+                                const layer = new FeatureLayer({
+                                    url: layerUrl,
+                                    outFields: ["*"],
+                                    id: `layer-${id}`
+                                });
+                                await layer.load();
+                                allLayers.push(layer);
+                                map.add(layer);
+                            } catch (error) {
+                                console.error(`Error adding layer ID ${id}:`, error);
                             }
-                        });
-                    });
+                        }
+                    }));
 
-                    // Add event listener for map load
-                    view.when(function() {
-                        console.log("Map loaded successfully. Click on a point to begin.");
-                        populateStreetDatalist(); // Populate streets after map is ready
-                    }).catch(function(error) {
+                    if (allLayers.length === 0) {
+                        console.error("No spatial layers found.");
+                        hideLoadingSpinner();
+                        return;
+                    }
+
+                    view.when(() => {
+                        originalViewpoint = view.viewpoint.clone();
+                        zoomToAllLayers(allLayers);
+
+                        // Populate street list first
+                        populateStreetList(allLayers).then(() => {
+                            // Then initialize the year filter
+                            initializeYearFilter(allLayers).then(() => {
+                                // Create filter elements (this creates #streetFilter)
+                                createFilterElements();
+
+                                // Now that #streetFilter is created, initialize autocomplete
+                                $("#streetFilter").autocomplete({
+                                    source: streetList,
+                                    minLength: 0
+                                }).focus(function () {
+                                    $(this).autocomplete("search", "");
+                                });
+
+                                // Finally, apply filters
+                                applyFilters();
+                            });
+
+                            view.on("click", handleMapClick);
+
+                            document.getElementById("generateReportBtn").addEventListener("click", generateReport);
+                            document.getElementById("printMapBtn").addEventListener("click", exportMapAsPDF);
+                        });
+                    }).catch((error) => {
                         console.error("Error loading the map:", error);
+                    }).finally(() => {
+                        hideLoadingSpinner();
                     });
                 }
 
-                initMap();
+                function showLoadingSpinner() {
+                    document.getElementById("loadingSpinner").style.display = "block";
+                }
 
-                // Function to validate and provide visual feedback for street input
-                function validateStreetInput() {
-                    const streetInput = document.getElementById("streetFilter");
-                    const datalist = document.getElementById("streetNames");
-                    const options = datalist.options;
-                    const enteredValue = streetInput.value.trim().toLowerCase();
-                    let isValid = false;
+                function hideLoadingSpinner() {
+                    document.getElementById("loadingSpinner").style.display = "none";
+                }
 
-                    for (let i = 0; i < options.length; i++) {
-                        if (normalizeStreetName(options[i].value) === normalizeStreetName(enteredValue)) {
-                            isValid = true;
-                            break;
-                        }
-                    }
-
-                    const streetError = document.getElementById("streetError");
-
-                    if (isValid || enteredValue === "") {
-                        streetInput.style.borderColor = "green";
-                        streetError.style.display = "none";
-                        streetInput.setCustomValidity("");
-                    } else {
-                        streetInput.style.borderColor = "red";
-                        streetError.style.display = "block";
-                        streetInput.setCustomValidity("Please select a valid street from the suggestions.");
+                async function isSpatialLayer(layerUrl) {
+                    try {
+                        const response = await fetch(layerUrl + "?f=json");
+                        const data = await response.json();
+                        return data.geometryType !== undefined && data.geometryType !== null;
+                    } catch (error) {
+                        console.error("Error checking if layer is spatial:", error);
+                        return false;
                     }
                 }
 
-                // Function to handle Enter key press for selecting the top autocomplete option
-                function handleEnterKey(event) {
-                    if (event.key === "Enter") {
-                        const streetInput = event.target;
-                        const datalist = document.getElementById("streetNames");
-                        const options = Array.from(datalist.options).map(option => normalizeStreetName(option.value));
-                        const enteredValue = normalizeStreetName(streetInput.value);
-
-                        // Check if entered value matches any option
-                        if (!options.includes(enteredValue) && options.length > 0) {
-                            // Prevent default action
-                            event.preventDefault();
-
-                            // Set the input value to the first suggestion
-                            streetInput.value = datalist.options[0].value;
-                            validateStreetInput(); // Update validation visuals
-                            applyFilters(); // Apply filters after setting the value
-                        }
+                function zoomToAllLayers(layers) {
+                    const extents = layers.map(layer => layer.fullExtent).filter(extent => extent);
+                    if (extents.length > 0) {
+                        view.goTo(extents).catch((error) => {
+                            console.error("Error zooming:", error);
+                        });
                     }
                 }
 
-                // Function to toggle location selection
-                function toggleLocationSelection(layer) {
-                    const index = selectedLocations.findIndex(l => l.id === layer.id);
-                    if (index > -1) {
-                        selectedLocations.splice(index, 1);
-                    } else {
-                        selectedLocations.push(layer);
-                    }
-                    updateLocationSelectionUI();
-                    querySelectedLocations();
-                }
+                async function populateStreetList(spatialLayers) {
+                    const streetSet = new Set();
+                    const layerPromises = spatialLayers.map(layer => {
+                        const query = layer.createQuery();
+                        query.where = "1=1";
+                        query.returnDistinctValues = true;
+                        query.outFields = [MAJOR_STREETS_FIELD, MINOR_STREETS_FIELD].filter(Boolean);
 
-                // Function to update location selection UI
-                function updateLocationSelectionUI() {
-                    console.log("Selected locations:", selectedLocations.length);
-                    // You can add more UI updates here, like updating a list of selected locations
-                }
-
-                // Function to query selected locations
-                function querySelectedLocations() {
-                    const promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
+                        return layer.queryFeatures(query).then(result => {
+                            result.features.forEach(feature => {
+                                [MAJOR_STREETS_FIELD, MINOR_STREETS_FIELD].forEach(fld => {
+                                    if (feature.attributes[fld]) {
+                                        const streetName = feature.attributes[fld];
+                                        if (streetName) {
+                                            streetSet.add(streetName);
+                                        }
+                                    }
+                                });
+                            });
+                        }).catch(error => {
+                            console.error("Error querying streets:", error);
+                        });
                     });
 
-                    Promise.all(promises).then(function(results) {
-                        const allFeatures = results.flat();
-                        displayAttributes(allFeatures);
-                        highlightFeatures(allFeatures);
-                    }).catch(function(error) {
-                        console.error("Error querying selected locations:", error);
-                    });
+                    await Promise.all(layerPromises);
+                    streetList = Array.from(streetSet).sort();
                 }
 
-                // Function to build where clause based on filters
-                function buildWhereClause(layer) {
-                    const whereClause = [];
+                async function initializeYearFilter(spatialLayers) {
+                    const yearPromises = spatialLayers.map(layer => {
+                        const getYearsFromSource = async (source, fields) => {
+                            const yearField = fields.find(f => f.name.toLowerCase() === YEAR_FIELD.toLowerCase());
+                            if (yearField) {
+                                const query = source.createQuery();
+                                query.where = "1=1";
+                                query.outFields = [yearField.name];
+                                query.returnDistinctValues = true;
+                                query.returnGeometry = false;
+                                try {
+                                    const result = await source.queryFeatures(query);
+                                    result.features.forEach(feature => {
+                                        const year = feature.attributes[yearField.name];
+                                        if (year) {
+                                            allYears.add(year);
+                                        }
+                                    });
+                                } catch (error) {
+                                    console.error("Error querying years:", error);
+                                }
+                            }
+                        };
+
+                        const layerPromises = [
+                            getYearsFromSource(layer, layer.fields)
+                        ];
+
+                        (layer.relationships || []).forEach(rel => {
+                            const relatedTableUrl = `${layer.url.replace(/\/\d+$/, "")}/${rel.relatedTableId}`;
+                            const relatedTable = new FeatureLayer({
+                                url: relatedTableUrl,
+                                outFields: ["*"]
+                            });
+                            layerPromises.push(
+                                relatedTable.load().then(() => getYearsFromSource(relatedTable, relatedTable.fields)).catch(() => { })
+                            );
+                        });
+
+                        return Promise.all(layerPromises);
+                    });
+
+                    await Promise.all(yearPromises.flat());
+                }
+
+                function createFilterElements() {
+                    const filterControlsDiv = document.getElementById("filterControls");
+
+                    // Data Type Filter
+                    const dataTypeLabel = document.createElement("label");
+                    dataTypeLabel.textContent = "Filter by Data Type:";
+                    dataTypeLabel.setAttribute("for", "dataTypeFilter");
+                    const dataTypeSelect = document.createElement('select');
+                    dataTypeSelect.id = 'dataTypeFilter';
+                    const dataTypes = ["All", "Bikes", "Intersection Info", "PHF", "Pedestrian", "Heavy Vehicles", "Turning Movement"];
+                    dataTypes.forEach((type) => {
+                        const option = document.createElement('option');
+                        option.value = type;
+                        option.text = type;
+                        dataTypeSelect.add(option);
+                    });
+                    filterControlsDiv.appendChild(dataTypeLabel);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(dataTypeSelect);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(document.createElement("br"));
+
+                    // Year Filter
+                    const yearLabel = document.createElement("label");
+                    yearLabel.textContent = "Filter by Year:";
+                    yearLabel.setAttribute("for", "yearFilter");
+                    const yearSelect = document.createElement('select');
+                    yearSelect.id = "yearFilter";
+                    yearSelect.multiple = true;
+                    yearSelect.size = 5;
+
+                    const allYearsOption = document.createElement("option");
+                    allYearsOption.value = "All";
+                    allYearsOption.textContent = "All";
+                    yearSelect.appendChild(allYearsOption);
+
+                    const sortedYears = Array.from(allYears).sort();
+                    sortedYears.forEach(year => {
+                        const option = document.createElement("option");
+                        option.value = year;
+                        option.textContent = year;
+                        yearSelect.appendChild(option);
+                    });
+
+                    filterControlsDiv.appendChild(yearLabel);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(yearSelect);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(document.createElement("br"));
+
+                    // Period Filter
+                    const periodLabel = document.createElement("label");
+                    periodLabel.textContent = "Filter by Period:";
+                    periodLabel.setAttribute("for", "periodFilter");
+                    const periodSelect = document.createElement("select");
+                    periodSelect.id = "periodFilter";
+                    const periods = ["All", "AM", "MID", "PM"];
+                    periods.forEach((period) => {
+                        const option = document.createElement("option");
+                        option.value = period;
+                        option.textContent = period;
+                        periodSelect.appendChild(option);
+                    });
+                    filterControlsDiv.appendChild(periodLabel);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(periodSelect);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(document.createElement("br"));
+
+                    // Street Filter
+                    const streetLabel = document.createElement("label");
+                    streetLabel.textContent = "Filter by Street:";
+                    streetLabel.setAttribute("for", "streetFilter");
+                    const streetInput = document.createElement("input");
+                    streetInput.id = "streetFilter";
+                    streetInput.placeholder = "Enter street name";
+                    filterControlsDiv.appendChild(streetLabel);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(streetInput);
+                    filterControlsDiv.appendChild(document.createElement("br"));
+                    filterControlsDiv.appendChild(document.createElement("br"));
+
+                    streetInput.addEventListener('input', applyFilters);
+                    streetInput.addEventListener('change', applyFilters);
+
+                    document.getElementById("dataTypeFilter").addEventListener('change', applyFilters);
+                    document.getElementById("yearFilter").addEventListener('change', applyFilters);
+                    document.getElementById("periodFilter").addEventListener('change', applyFilters);
+                }
+
+                async function applyFilters() {
                     const dataType = document.getElementById("dataTypeFilter").value;
-                    const years = getSelectedYears();
-                    const period = document.getElementById("periodFilter").value;
-                    const street = document.getElementById("streetFilter").value.trim();
+                    const yearSelect = document.getElementById("yearFilter");
+                    const selectedYearOptions = Array.from(yearSelect.selectedOptions);
+                    const years = selectedYearOptions.map(option => option.value);
+                    const period = document.getElementById('periodFilter').value;
+                    const street = document.getElementById('streetFilter').value.trim();
 
-                    let hasAllRequiredFields = true;
+                    currentDataType = dataType;
+                    currentYears = years;
+                    currentPeriod = period;
+                    currentStreet = street;
 
-                    // Check for Data_Type field
-                    if (dataType !== "All") {
-                        const dataTypeField = layer.fields.find(f => f.name === "Data_Type");
-                        if (dataTypeField) {
-                            whereClause.push(`Data_Type = '${dataType}'`);
-                        } else {
-                            hasAllRequiredFields = false;
+                    let mainWhereClauses = [];
+                    if (street) {
+                        mainWhereClauses.push(`(${MAJOR_STREETS_FIELD} LIKE '%${street}%' OR ${MINOR_STREETS_FIELD} LIKE '%${street}%')`);
+                    }
+
+                    const mainWhere = mainWhereClauses.length > 0 ? mainWhereClauses.join(' AND ') : "1=1";
+                    allLayers.forEach(layer => {
+                        layer.definitionExpression = mainWhere;
+                    });
+
+                    let matchedFeatures = [];
+                    if (selectedFeatures.length === 0) {
+                        for (const layer of allLayers) {
+                            const visibleFeatures = await queryAllVisibleFeatures(layer);
+                            const filtered = await clientSideRelatedDataFilter(layer, visibleFeatures, dataType, years, period);
+                            matchedFeatures = matchedFeatures.concat(filtered);
+                        }
+
+                        for (const layer of allLayers) {
+                            const layerView = await view.whenLayerView(layer);
+                            const layerOIDs = matchedFeatures.filter(f => f.layer.id === layer.id)
+                                .map(f => f.attributes[layer.objectIdField]);
+                            const filter = new FeatureFilter({
+                                objectIds: layerOIDs
+                            });
+                            layerView.filter = filter;
+                        }
+                    } else {
+                        const featsByLayer = {};
+                        selectedFeatures.forEach(f => {
+                            if (!featsByLayer[f.layer.id]) featsByLayer[f.layer.id] = [];
+                            featsByLayer[f.layer.id].push(f);
+                        });
+
+                        let selectionMatched = [];
+                        for (const layerId in featsByLayer) {
+                            const layer = allLayers.find(l => l.id === layerId);
+                            const baseFeats = featsByLayer[layerId];
+                            const filtered = await clientSideRelatedDataFilter(layer, baseFeats, dataType, years, period);
+                            selectionMatched = selectionMatched.concat(filtered);
+                        }
+                        matchedFeatures = selectionMatched;
+
+                        for (const layer of allLayers) {
+                            const layerView = await view.whenLayerView(layer);
+                            layerView.filter = null;
                         }
                     }
 
-                    // Check for Year field
-                    if (years.length > 0 && !years.includes("All")) {
-                        const yearField = layer.fields.find(f => f.name === "Year");
-                        if (yearField) {
-                            let yearValuesExpression = "";
-                            if (yearField.type === "small-integer" || yearField.type === "integer") {
-                                // Year is numeric, do not use quotes
-                                yearValuesExpression = `Year IN (${years.join(",")})`;
-                            } else {
-                                // Year is string, wrap values in single quotes
-                                yearValuesExpression = `Year IN (${years.map(year => `'${year}'`).join(",")})`;
-                            }
-                            whereClause.push(yearValuesExpression);
-                        } else {
-                            hasAllRequiredFields = false;
+                    filteredFeatures = matchedFeatures;
+
+                    if (highlightHandle) {
+                        highlightHandle.remove();
+                        highlightHandle = null;
+                    }
+                    if (selectedFeatures.length > 0) {
+                        const matchedOIDs = new Set(filteredFeatures.map(f => f.attributes[f.layer.objectIdField]));
+                        const byLayer = {};
+                        const actuallySelectedMatched = selectedFeatures.filter(f => matchedOIDs.has(f.attributes[f.layer.objectIdField]));
+                        actuallySelectedMatched.forEach(f => {
+                            if (!byLayer[f.layer.id]) byLayer[f.layer.id] = [];
+                            byLayer[f.layer.id].push(f.attributes[f.layer.objectIdField]);
+                        });
+
+                        for (const layerId in byLayer) {
+                            const layer = allLayers.find(l => l.id === layerId);
+                            const layerView = await view.whenLayerView(layer);
+                            highlightHandle = layerView.highlight(byLayer[layerId]);
                         }
                     }
 
-                    // Check for Period field
-                    if (period !== "All") {
-                        const periodField = layer.fields.find(f => f.name === "Period");
-                        if (periodField) {
-                            whereClause.push(`Period = '${period}'`);
-                        } else {
-                            hasAllRequiredFields = false;
-                        }
-                    }
-
-                    // Check for Major_Street and Minor_Street fields
-                    if (street && street !== "All") {
-                        const majorStreetField = layer.fields.find(f => f.name === "Major_Street");
-                        const minorStreetField = layer.fields.find(f => f.name === "Minor_Street");
-                        if (majorStreetField || minorStreetField) {
-                            const streetConditions = [];
-                            if (majorStreetField) {
-                                streetConditions.push(`Major_Street LIKE '%${street}%'`);
-                            }
-                            if (minorStreetField) {
-                                streetConditions.push(`Minor_Street LIKE '%${street}%'`);
-                            }
-                            // Add parentheses around street conditions
-                            whereClause.push(`(${streetConditions.join(" OR ")})`);
-                        } else {
-                            hasAllRequiredFields = false;
-                        }
-                    }
-
-                    if (!hasAllRequiredFields) {
-                        // Exclude this layer if it doesn't have required fields
-                        console.warn(`Excluding layer '${layer.title}' due to missing required fields.`);
-                        return ['1=0'];
-                    }
-
-                    return whereClause;
+                    displayAttributes(filteredFeatures);
                 }
 
-                // Function to get selected years
-                function getSelectedYears() {
-                    const yearFilter = document.getElementById("yearFilter");
-                    const selectedYears = Array.from(yearFilter.selectedOptions).map(option => option.value);
-                    return selectedYears.includes("All") ? ["All"] : selectedYears;
-                }
-
-                // Function to query features from a layer based on filters
-                function queryFeatures(layer) {
-                    const query = new Query();
-                    const whereClause = buildWhereClause(layer);
-
-                    query.where = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
+                async function queryAllVisibleFeatures(layer) {
+                    const query = layer.createQuery();
+                    query.where = layer.definitionExpression || "1=1";
                     query.outFields = ["*"];
                     query.returnGeometry = true;
-
-                    return layer.queryFeatures(query).then(function(result) {
-                        return result.features;
-                    }).catch(function(error) {
-                        console.error(`Error querying features from layer '${layer.title}':`, error);
-                        return [];
-                    });
+                    const featureSet = await layer.queryFeatures(query);
+                    return featureSet.features;
                 }
 
-                // Function to display attributes in the featuresDiv
+                async function clientSideRelatedDataFilter(layer, features, dataType, years, period) {
+                    const objectIds = features.map(f => f.attributes[layer.objectIdField]);
+                    const relatedDataForAllFeatures = await fetchRelatedData(layer, objectIds);
+
+                    const matched = [];
+                    features.forEach(feature => {
+                        const relatedDataArray = relatedDataForAllFeatures[feature.attributes[layer.objectIdField]] || [];
+                        const allRecords = [feature.attributes, ...relatedDataArray];
+                        const anyMatch = allRecords.some(rec => doesFeatureMatchFilters(rec, dataType, years, period));
+                        if (anyMatch) matched.push(feature);
+                    });
+                    return matched;
+                }
+
+                function doesFeatureMatchFilters(attributes, dataType, years, period) {
+                    let match = true;
+
+                    if (dataType !== "All") {
+                        const val = attributes[DATA_TYPE_FIELD];
+                        if (!val || val !== dataType) match = false;
+                    }
+
+                    if (match && years.length > 0 && !years.includes("All")) {
+                        const val = attributes[YEAR_FIELD];
+                        if (!val || !years.includes(val.toString())) match = false;
+                    }
+
+                    if (match && period !== "All") {
+                        const val = attributes[PERIOD_FIELD];
+                        if (!val || val !== period) match = false;
+                    }
+
+                    return match;
+                }
+
+                async function fetchRelatedData(layer, objectIds) {
+                    const relatedDataMap = {};
+                    if (!layer.relationships || layer.relationships.length === 0) {
+                        return relatedDataMap;
+                    }
+
+                    const relationshipPromises = layer.relationships.map(async relationship => {
+                        const relationshipQuery = new RelationshipQuery();
+                        relationshipQuery.relationshipId = relationship.id;
+                        relationshipQuery.objectIds = objectIds;
+                        relationshipQuery.outFields = ["*"];
+                        relationshipQuery.returnGeometry = false;
+
+                        try {
+                            const result = await layer.queryRelatedFeatures(relationshipQuery);
+                            for (const objectId in result) {
+                                if (!relatedDataMap[objectId]) relatedDataMap[objectId] = [];
+                                relatedDataMap[objectId].push(...result[objectId].features.map(f => f.attributes));
+                            }
+                        } catch (error) {
+                            console.error(`Error querying related features:`, error);
+                        }
+                    });
+
+                    await Promise.all(relationshipPromises);
+                    return relatedDataMap;
+                }
+
                 function displayAttributes(features) {
-                    const featuresContentDiv = document.getElementById("featuresContentDiv");
-                    featuresContentDiv.innerHTML = ""; // Clear previous content
+                    const attributeTable = document.getElementById("attributeTable");
+                    const thead = attributeTable.querySelector("thead");
+                    const tbody = attributeTable.querySelector("tbody");
+
+                    thead.innerHTML = "";
+                    tbody.innerHTML = "";
 
                     if (features.length === 0) {
-                        featuresContentDiv.innerHTML = "No features found in this layer.";
+                        const noDataRow = document.createElement("tr");
+                        const noDataCell = document.createElement("td");
+                        noDataCell.colSpan = 28;
+                        noDataCell.textContent = "No features match the selected filters.";
+                        noDataRow.appendChild(noDataCell);
+                        tbody.appendChild(noDataRow);
+                        currentHeadersToDisplay = [];
+                        currentTableData = [];
                         return;
                     }
 
-                    const table = document.createElement("table");
-                    table.className = "attribute-table";
-
-                    // Determine which columns have non-null values and are not excluded
-                    const columnsWithValues = {};
-                    const excludedFields = ["PopupInfo", "ObjectID", "PEAK_ID", "Latitude", "Longitude", "Intersection_ID", "Intersection_Type", "Leg_Type","Traffic_DataCollection_Date", "City","State", "Intersection_Value","E","N","S","W"];
-                    features.forEach(function(feature) {
-                        for (let attr in feature.attributes) {
-                            if (feature.attributes.hasOwnProperty(attr) && 
-                                feature.attributes[attr] !== null && 
-                                !excludedFields.includes(attr)) {
-                                columnsWithValues[attr] = true;
+                    (async () => {
+                        const layerObjectIdsMap = {};
+                        features.forEach(feature => {
+                            if (!layerObjectIdsMap[feature.layer.id]) {
+                                layerObjectIdsMap[feature.layer.id] = [];
                             }
-                        }
-                    });
+                            layerObjectIdsMap[feature.layer.id].push(feature.attributes[feature.layer.objectIdField]);
+                        });
 
-                    // Create header row
-                    const headerRow = table.createTHead().insertRow();
-                    const headers = [];
-                    for (let attr in features[0].attributes) {
-                        if (features[0].attributes.hasOwnProperty(attr) && 
-                            columnsWithValues[attr] && 
-                            !excludedFields.includes(attr)) {
-                            headers.push(attr);
-                            const headerCell = document.createElement("th");
-                            headerCell.innerHTML = `${attr} <span class="sort-indicator">⇅</span>`;
-                            
-                            // Use let to capture the current value of attr
-                            headerCell.addEventListener("click", function() {
-                                const columnIndex = headers.indexOf(attr);
-                                sortTable(table, columnIndex, this);
+                        const allRelatedDataPromises = Object.keys(layerObjectIdsMap).map(async layerId => {
+                            const layer = allLayers.find(l => l.id === layerId);
+                            const objectIds = layerObjectIdsMap[layerId];
+                            const relatedData = await fetchRelatedData(layer, objectIds);
+                            return { layer, relatedData };
+                        });
+
+                        const allRelatedData = await Promise.all(allRelatedDataPromises);
+
+                        const relatedDataMap = {};
+                        allRelatedData.forEach(({ relatedData }) => {
+                            for (const objectId in relatedData) {
+                                if (!relatedDataMap[objectId]) {
+                                    relatedDataMap[objectId] = [];
+                                }
+                                relatedDataMap[objectId].push(...relatedData[objectId]);
+                            }
+                        });
+
+                        const headersSet = new Set();
+                        const tableData = [];
+                        const columnValues = {};
+
+                        features.forEach(feature => {
+                            const objectId = feature.attributes[feature.layer.objectIdField];
+                            const relatedDataArray = relatedDataMap[objectId] || [];
+
+                            const mainRecordMatches = doesFeatureMatchFilters(feature.attributes, currentDataType, currentYears, currentPeriod);
+                            const matchingRelated = relatedDataArray.filter(r => doesFeatureMatchFilters(r, currentDataType, currentYears, currentPeriod));
+
+                            if (matchingRelated.length === 0 && mainRecordMatches) {
+                                const rowData = {};
+                                for (const attr in feature.attributes) {
+                                    headersSet.add(attr);
+                                    rowData[attr] = feature.attributes[attr] ?? "N/A";
+                                    if (!columnValues[attr]) columnValues[attr] = new Set();
+                                    columnValues[attr].add(rowData[attr]);
+                                }
+                                tableData.push(rowData);
+                            } else if (matchingRelated.length > 0) {
+                                matchingRelated.forEach(relAttributes => {
+                                    const rowData = {};
+                                    for (const attr in feature.attributes) {
+                                        headersSet.add(attr);
+                                        rowData[attr] = feature.attributes[attr] ?? "N/A";
+                                        if (!columnValues[attr]) columnValues[attr] = new Set();
+                                        columnValues[attr].add(rowData[attr]);
+                                    }
+                                    for (const attr in relAttributes) {
+                                        headersSet.add(attr);
+                                        rowData[attr] = relAttributes[attr] ?? "N/A";
+                                        if (!columnValues[attr]) columnValues[attr] = new Set();
+                                        columnValues[attr].add(rowData[attr]);
+                                    }
+                                    tableData.push(rowData);
+                                });
+                            }
+                        });
+
+                        const allHeaders = Array.from(headersSet);
+
+                        const fieldsToExclude = [
+                            "OBJECTID", "Shape", "SHAPE_Length", "SHAPE_Area", "Intersection_IDs", "LocationID", "Intersection_ID",
+                            "Longitude", "Latitude", "PopupInfo", "Names", "Traffic_DataCollection_Date", "Major_Streets", "Minor_Streets",
+                            "City", "State", "Intersection_Type", "Leg_Type"
+                        ];
+
+                        let headersToDisplay = allHeaders.filter(attr => {
+                            if (fieldsToExclude.includes(attr)) {
+                                return false;
+                            }
+                            const values = columnValues[attr];
+                            const allValuesNull = values.size === 1 && (values.has("N/A") || values.has(null) || values.has(undefined));
+                            return !allValuesNull;
+                        });
+
+                        // Reorder columns so E, W, N, S appear just before EBL
+                        const directionCols = ["E", "W", "N", "S"];
+                        const eblIndex = headersToDisplay.indexOf("EBL");
+                        if (eblIndex !== -1) {
+                            const extractedDirections = directionCols.filter(d => headersToDisplay.includes(d));
+                            extractedDirections.forEach(d => {
+                                const idx = headersToDisplay.indexOf(d);
+                                if (idx !== -1) {
+                                    headersToDisplay.splice(idx, 1);
+                                }
+                            });
+                            headersToDisplay.splice(eblIndex, 0, ...extractedDirections);
+                        }
+
+                        const headerRow = document.createElement("tr");
+                        headersToDisplay.forEach((headerText, index) => {
+                            const headerCell = document.createElement('th');
+                            headerCell.innerHTML = `${headerText} <span class="sort-indicator">⇅</span>`;
+                            headerCell.addEventListener("click", function () {
+                                sortTable(attributeTable, index, this);
                             });
                             headerRow.appendChild(headerCell);
-                        }
-                    }
-
-                    // Create tbody
-                    const tbody = table.createTBody();
-                    features.forEach(function(feature) {
-                        const dataRow = tbody.insertRow();
-                        headers.forEach(function(attr) {
-                            const dataCell = dataRow.insertCell();
-                            dataCell.innerHTML = feature.attributes[attr] !== null ? feature.attributes[attr] : "N/A";
                         });
-                    });
+                        thead.appendChild(headerRow);
 
-                    featuresContentDiv.appendChild(table); // Append the table to the content div
+                        tableData.forEach(rowData => {
+                            const row = document.createElement("tr");
+                            headersToDisplay.forEach(header => {
+                                const cell = document.createElement("td");
+                                cell.textContent = rowData[header] || 'N/A';
+                                row.appendChild(cell);
+                            });
+                            tbody.appendChild(row);
+                        });
+
+                        currentHeadersToDisplay = headersToDisplay;
+                        currentTableData = tableData;
+                    })();
                 }
 
-                let currentSort = { index: -1, asc: true };
-
-                // Function to sort the table based on column index
-                function sortTable(table, columnIndex, headerCell) {
-                    if (columnIndex === -1) {
-                        console.error("Invalid column index:", columnIndex);
-                        return;
-                    }
-
+                function sortTable(table, columnIndex, header) {
                     const tbody = table.tBodies[0];
                     const rows = Array.from(tbody.rows);
+                    const currentSort = header.dataset.sort === "asc" ? { asc: false } : { asc: true };
+                    header.dataset.sort = currentSort.asc ? "asc" : "desc";
 
-                    if (currentSort.index === columnIndex) {
-                        currentSort.asc = !currentSort.asc;
-                    } else {
-                        currentSort.index = columnIndex;
-                        currentSort.asc = true;
-                    }
-
-                    rows.sort(function(a, b) {
-                        const aCell = a.cells[columnIndex];
-                        const bCell = b.cells[columnIndex];
-
-                        // Safety check
-                        if (!aCell || !bCell) {
-                            console.warn("One of the cells is undefined:", aCell, bCell);
-                            return 0;
-                        }
-
-                        const aText = aCell.textContent.trim();
-                        const bText = bCell.textContent.trim();
-
-                        // Attempt to parse as numbers
-                        const aNum = parseFloat(aText.replace(/[^0-9.-]+/g,""));
-                        const bNum = parseFloat(bText.replace(/[^0-9.-]+/g,""));
+                    rows.sort((a, b) => {
+                        const aText = a.cells[columnIndex].textContent.trim();
+                        const bText = b.cells[columnIndex].textContent.trim();
+                        const aNum = parseFloat(aText);
+                        const bNum = parseFloat(bText);
 
                         if (!isNaN(aNum) && !isNaN(bNum)) {
                             return currentSort.asc ? aNum - bNum : bNum - aNum;
@@ -623,21 +911,14 @@
                         }
                     });
 
-                    // Remove existing rows
                     while (tbody.firstChild) {
                         tbody.removeChild(tbody.firstChild);
                     }
 
-                    // Re-add sorted rows
-                    rows.forEach(function(row) {
-                        tbody.appendChild(row);
-                    });
-
-                    // Update sort indicators
+                    rows.forEach(row => tbody.appendChild(row));
                     updateSortIndicators(table, columnIndex, currentSort.asc);
                 }
 
-                // Function to update sort indicators in the table headers
                 function updateSortIndicators(table, sortedColumn, asc) {
                     const headers = table.tHead.rows[0].cells;
                     for (let i = 0; i < headers.length; i++) {
@@ -650,446 +931,172 @@
                     }
                 }
 
-                // Function to highlight features on the map
-                function highlightFeatures(features) {
-                    view.graphics.removeAll();
-                    features.forEach(function(feature) {
-                        const graphic = new Graphic({
-                            geometry: feature.geometry,
-                            symbol: {
-                                type: "simple-marker",
-                                style: "circle",
-                                color: [255, 255, 0, 0.8],
-                                size: "12px",
-                                outline: {
-                                    color: [255, 255, 0, 0.8],
-                                    width: "2px"
-                                }
-                            }
-                        });
-                        view.graphics.add(graphic);
-                    });
-                }
-
-                // Function to initially load all unique years into the year filter
-                function initializeYearFilter() {
-                    const yearFilter = document.getElementById("yearFilter");
-                    yearFilter.innerHTML = ""; // Clear existing options
-
-                    const allOption = document.createElement("option");
-                    allOption.value = "All";
-                    allOption.text = "All";
-                    yearFilter.appendChild(allOption);
-
-                    const uniqueYears = new Set();
-
-                    // Query each layer to collect all unique years without applying filters
-                    const yearPromises = map.layers.map(layer => {
-                        if (layer instanceof FeatureLayer) {
-                            const query = layer.createQuery();
-                            query.where = "1=1"; // No filter initially
-                            query.outFields = ["Year"];
-                            query.returnDistinctValues = true;
-
-                            return layer.queryFeatures(query).then(result => {
-                                result.features.forEach(feature => {
-                                    const year = feature.attributes["Year"];
-                                    if (year) uniqueYears.add(year);
-                                });
-                            }).catch(error => console.error("Error querying layer for unique years:", error));
+                function handleMapClick(event) {
+                    view.hitTest(event).then(response => {
+                        const result = response.results.find(r => r.graphic && r.graphic.layer && r.graphic.layer.type === "feature");
+                        if (result) {
+                            toggleFeatureSelection(result.graphic);
+                        } else {
+                            // Empty space: unselect all
+                            selectedFeatures = [];
+                            applyFilters();
                         }
                     });
-
-                    // Populate the year filter dropdown with all unique years
-                    Promise.all(yearPromises).then(() => {
-                        Array.from(uniqueYears).sort().forEach(year => {
-                            const option = document.createElement("option");
-                            option.value = year;
-                            option.text = year;
-                            yearFilter.appendChild(option);
-                        });
-                    });
                 }
 
-                // Function to dynamically update year filter options based on active filters
-                function updateYearFilterOptions() {
-                    const selectedYears = new Set();
-                    const yearFilter = document.getElementById("yearFilter");
-                    const previousSelections = Array.from(yearFilter.selectedOptions).map(option => option.value);
+                function toggleFeatureSelection(feature) {
+                    const objectIdField = feature.layer.objectIdField;
+                    const objectId = feature.attributes[objectIdField];
+                    const existingIndex = selectedFeatures.findIndex(f => f.attributes[objectIdField] === objectId);
 
-                    yearFilter.innerHTML = ""; // Clear existing options
-
-                    const allOption = document.createElement("option");
-                    allOption.value = "All";
-                    allOption.text = "All";
-                    yearFilter.appendChild(allOption);
-
-                    // Build where clause from current active filters (street and data type)
-                    const dataType = document.getElementById("dataTypeFilter").value;
-                    const street = document.getElementById("streetFilter").value.trim();
-                    const whereClause = [];
-
-                    if (dataType !== "All") {
-                        whereClause.push(`Data_Type = '${dataType}'`);
+                    if (existingIndex > -1) {
+                        selectedFeatures.splice(existingIndex, 1);
+                    } else {
+                        selectedFeatures.push(feature);
                     }
-                    if (street && street !== "All") {
-                        whereClause.push(`Major_Street LIKE '%${street}%' OR Minor_Street LIKE '%${street}%'`);
-                    }
-                    const filterExpression = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
 
-                    // Query each layer to collect unique years based on current filter expression
-                    const yearPromises = map.layers.map(layer => {
-                        if (layer instanceof FeatureLayer) {
-                            const query = layer.createQuery();
-                            query.where = filterExpression;
-                            query.outFields = ["Year"];
-                            query.returnDistinctValues = true;
-
-                            return layer.queryFeatures(query).then(result => {
-                                result.features.forEach(feature => {
-                                    const year = feature.attributes["Year"];
-                                    if (year) selectedYears.add(year);
-                                });
-                            }).catch(error => console.error("Error querying layer for unique years:", error));
-                        }
-                    });
-
-                    // Populate year filter based on filter-specific unique years
-                    Promise.all(yearPromises).then(() => {
-                        Array.from(selectedYears).sort().forEach(year => {
-                            const option = document.createElement("option");
-                            option.value = year;
-                            option.text = year;
-                            yearFilter.appendChild(option);
-                        });
-
-                        // Restore previous selections if they are still valid
-                        Array.from(yearFilter.options).forEach(option => {
-                            if (previousSelections.includes(option.value)) {
-                                option.selected = true;
-                            }
-                        });
-                    });
-                }
-
-                // Initialize all years in the year filter on page load
-                initializeYearFilter();
-
-                // Consolidated event listener for the streetFilter
-                document.getElementById("streetFilter").addEventListener("input", function() {
-                    validateStreetInput();
-                    updateYearFilterOptions();
                     applyFilters();
-                });
-
-                document.getElementById("streetFilter").addEventListener("change", validateStreetInput);
-                document.getElementById("streetFilter").addEventListener("keydown", handleEnterKey);
-
-                document.getElementById("dataTypeFilter").addEventListener("change", function() {
-                    updateYearFilterOptions();
-                    applyFilters();
-                });
-
-                // Add event listeners for other filters
-                document.getElementById("dataTypeFilter").addEventListener("change", applyFilters);
-                document.getElementById("yearFilter").addEventListener("change", applyFilters);
-                document.getElementById("periodFilter").addEventListener("change", applyFilters);
-
-                // Function to apply filters and update layer visibility
-                function applyFilters() {
-                    // For each layer, build and apply definitionExpression
-                    map.layers.forEach(function(layer) {
-                        if (layer instanceof FeatureLayer) {
-                            const whereClause = buildWhereClause(layer);
-                            const definitionExpression = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
-                            console.log(`Applying filters to layer '${layer.title}' with definitionExpression: ${definitionExpression}`);
-                            layer.definitionExpression = definitionExpression;
-                        }
-                    });
-
-                    // Re-query selected locations with updated filters
-                    let filteredFeatures = [];
-
-                    selectedLocations.forEach(function(layer) {
-                        if (!(layer instanceof FeatureLayer)) return; // Skip non-feature layers
-
-                        const whereClause = buildWhereClause(layer);
-                        const definitionExpression = whereClause.length > 0 ? whereClause.join(" AND ") : "1=1";
-
-                        const query = new Query();
-                        query.where = definitionExpression; // Apply the updated filter criteria
-                        query.returnGeometry = true;
-                        query.outFields = ["*"];
-
-                        layer.queryFeatures(query).then(function(result) {
-                            filteredFeatures = filteredFeatures.concat(result.features);
-
-                            if (filteredFeatures.length === 0) {
-                                selectedLocations = [];
-                                displayAttributes([]); // Clear the attribute display if no matches
-                                view.graphics.removeAll(); // Remove any highlighted graphics
-                            } else {
-                                displayAttributes(filteredFeatures);
-                                highlightFeatures(filteredFeatures);
-                            }
-                        }).catch(function(error) {
-                            console.error("Query failed: ", error);
-                        });
-                    });
                 }
 
-                // Function to print the map as PDF
-                function printMap(features) {
-                    if (features.length === 0) {
-                        alert("No features selected. Please select features first.");
+                function generateReport() {
+                    if (currentTableData.length === 0) {
+                        alert("No features to report.");
                         return;
                     }
 
-                    let extent = null;
-                    const validFeatures = features.filter(function(feature) {
-                        return feature.geometry;
-                    });
-
-                    if (validFeatures.length === 0) {
-                        alert("No valid geometries found in the selected features. Unable to print map.");
-                        return;
+                    const format = document.getElementById("reportFormat").value;
+                    if (format === "pdf") {
+                        generatePDFReport();
+                    } else {
+                        generateCSVReport();
                     }
-
-                    validFeatures.forEach(function(feature) {
-                        if (feature.geometry.type === "point") {
-                            const point = feature.geometry;
-                            const buffer = 1;
-                            const pointExtent = new Extent({
-                                xmin: point.x - buffer,
-                                ymin: point.y - buffer,
-                                xmax: point.x + buffer,
-                                ymax: point.y + buffer,
-                                spatialReference: view.spatialReference
-                            });
-                            
-                            if (extent) {
-                                extent = extent.union(pointExtent);
-                            } else {
-                                extent = pointExtent;
-                            }
-                        } else if (feature.geometry.extent) {
-                            if (extent) {
-                                extent = extent.union(feature.geometry.extent);
-                            } else {
-                                extent = feature.geometry.extent.clone();
-                            }
-                        }
-                    });
-
-                    if (!extent) {
-                        alert("Unable to determine map extent. Please try again.");
-                        return;
-                    }
-
-                    // Adjust the zoom level more precisely
-                    view.goTo(extent.expand(999)).then(function() {
-                        // Add a delay before taking the screenshot
-                        setTimeout(function() {
-                            view.takeScreenshot({ 
-                                format: "jpg",
-                                width: 900,
-                                height: 1200
-                            }).then(function(screenshot) {
-                                const image = new Image();
-                                image.src = screenshot.dataUrl;
-
-                                image.onload = function() {
-                                    const doc = new jspdf.jsPDF({
-                                        orientation: "portrait",
-                                        unit: "mm",
-                                        format: "a4"
-                                    });
-
-                                    doc.setFontSize(18);
-                                    doc.text("Traffic Analytics Map", 105, 15, { align: "center" });
-
-                                    const pageWidth = doc.internal.pageSize.getWidth();
-                                    const pageHeight = doc.internal.pageSize.getHeight();
-                                    const margin = 10;
-                                    const bottomY = pageHeight - 20; // Start 20mm from bottom
-                                    const maxWidth = pageWidth - (2 * margin);
-                                    const maxHeight = pageHeight - 50;
-
-                                    const imgRatio = image.height / image.width;
-                                    const pageRatio = maxHeight / maxWidth;
-
-                                    let imgWidth, imgHeight;
-
-                                    if (imgRatio > pageRatio) {
-                                        imgHeight = maxHeight;
-                                        imgWidth = imgHeight / imgRatio;
-                                    } else {
-                                        imgWidth = maxWidth;
-                                        imgHeight = imgWidth * imgRatio;
-                                    }
-
-                                    const xOffset = (pageWidth - imgWidth) / 2;
-
-                                    doc.addImage(image, "JPEG", xOffset, 25, imgWidth, imgHeight);
-                                    // Scalebar
-                                    doc.setLineWidth(0.5);
-                                    doc.line(margin, bottomY, margin + 50, bottomY);
-                                    doc.setFontSize(8);
-                                    doc.text("0", margin, bottomY + 5);
-                                    doc.text("500 m", margin + 40, bottomY + 5);
-                                    // Legend
-                                    doc.setFontSize(10);
-                                    doc.text("Legend", pageWidth - margin - 40, bottomY);
-                                    doc.setFillColor(255, 255, 0);
-                                    doc.circle(pageWidth - margin - 35, bottomY + 7, 2, "F");
-                                    doc.setFontSize(8);
-                                    doc.text("Selected Location", pageWidth - margin - 30, bottomY + 8);
-                                    // Date and filters
-                                    doc.setFontSize(8);
-                                    const dateText = `Date: ${new Date().toLocaleDateString()}`;
-                                    const filterText = `Filters: ${document.getElementById("dataTypeFilter").value}, ${document.getElementById("yearFilter").value}, ${document.getElementById("periodFilter").value}`;
-                                    
-                                    doc.text(dateText, margin, pageHeight - 10);
-                                    doc.text(filterText, margin, pageHeight - 5);
-
-                                    doc.save("traffic_analytics_map.pdf");
-                                };
-                            }).catch(function(error) {
-                                console.error("Error taking screenshot:", error);
-                                alert("An error occurred while taking the screenshot. Please try again.");
-                            });
-                        }, 2000); // 2 second delay to ensure map is fully rendered
-                    }).catch(function(error) {
-                        console.error("Error while zooming to extent:", error);
-                        alert("An error occurred while preparing the map for print. Please try again.");
-                    });
                 }
 
-                // Function to normalize street names
-                function normalizeStreetName(street) {
-                    return street.trim().toLowerCase()
-                                 .replace(/\./g, "")
-                                 .replace(/\bstreet\b/g, "st")
-                                 .replace(/\bavenue\b/g, "ave")
-                                 .replace(/\broad\b/g, "rd")
-                                 .replace(/\bdrive\b/g, "dr")
-                                 .replace(/\bsuite\b/g, "ste");
-                }
-
-                // Function to display attributes in the featuresDiv (already defined above)
-                // ... (No changes needed)
-
-                // Function to generate PDF report
-                function generatePDF(features) {
-                    if (features.length === 0) {
-                        alert("No data available to generate report.");
-                        return;
-                    }
-
-                    // Access jsPDF from the global namespace
+                function generatePDFReport() {
                     const { jsPDF } = window.jspdf;
-
                     const doc = new jsPDF({
-                        orientation: "portrait",
-                        unit: "mm",
-                        format: "a4"
+                        orientation: 'landscape'
                     });
 
                     doc.setFontSize(18);
-                    doc.text("Traffic Analytics Report", 105, 15, { align: "center" });
+                    doc.text("Traffic Analytics Report", 14, 20);
 
                     doc.setFontSize(12);
-                    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 25);
+                    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
 
-                    // Fields to potentially include
-                    const potentialFields = [
-                        // Existing fields
-                        "Data_Type", "Year", "Period", "Major_Street", "Minor_Street",
-                        // Additional fields you specified
-                        "EBL", "EBT", "EBR",
-                        "WBL", "WBT", "WBR",
-                        "NBL", "NBT", "NBR",
-                        "SBL", "SBT",
-                        "EB", "WB", "NB", "SB"
-                    ];
+                    const headers = [currentHeadersToDisplay];
+                    const body = currentTableData.map(row => currentHeadersToDisplay.map(h => row[h] || 'N/A'));
 
-                    // Determine which fields have at least one non-"N/A" value
-                    const includedFields = potentialFields.filter(function(field) {
-                        return features.some(function(feature) {
-                            const value = feature.attributes[field];
-                            return value !== null && value !== undefined && value !== "N/A" && value !== "";
-                        });
-                    });
-
-                    if (includedFields.length === 0) {
-                        alert("No valid data available to generate report with the specified fields.");
-                        return;
-                    }
-
-                    // Prepare the table data
-                    const tableData = features.map(function(feature) {
-                        const rowData = {};
-                        includedFields.forEach(function(field) {
-                            const value = feature.attributes[field];
-                            rowData[field] = (value !== null && value !== undefined && value !== "") ? value : "N/A";
-                        });
-                        return rowData;
-                    });
-
-                    // Add the table to the PDF
                     doc.autoTable({
-                        head: [includedFields],
-                        body: tableData.map(row => includedFields.map(field => row[field])),
-                        startY: 35,
+                        head: headers,
+                        body: body,
+                        startY: 40,
                         theme: 'striped',
-                        styles: { fontSize: 10 }
+                        styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' },
+                        margin: 5,
+                        tableWidth: 'auto'
                     });
 
-                    // Save the PDF
                     doc.save("traffic_analytics_report.pdf");
                 }
 
-                // Generate Report Button
-                document.getElementById("generateReportBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations for the report.");
-                        return;
+                function generateCSVReport() {
+                    let csvContent = currentHeadersToDisplay.join(",") + "\n";
+                    currentTableData.forEach(rowData => {
+                        const row = currentHeadersToDisplay.map(h => {
+                            let val = rowData[h];
+                            if (val == null) val = 'N/A';
+                            val = String(val);
+                            const safeVal = val.replace(/"/g, '""');
+                            return `"${safeVal}"`;
+                        }).join(",");
+                        csvContent += row + "\n";
+                    });
+
+                    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.setAttribute("download", "traffic_analytics_report.csv");
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+
+                function waitForViewStable(view) {
+                    return new Promise(resolve => {
+                        if (!view.updating) {
+                            resolve();
+                            return;
+                        }
+                        const handle = view.watch("updating", (updating) => {
+                            if (!updating) {
+                                handle.remove();
+                                resolve();
+                            }
+                        });
+                    });
+                }
+
+                async function exportMapAsPDF() {
+                    // If selected features exist, try to get their combined extent
+                    let combinedExtent = null;
+                    for (const f of selectedFeatures) {
+                        if (f.geometry && f.geometry.extent) {
+                            if (!combinedExtent) {
+                                combinedExtent = f.geometry.extent.clone();
+                            } else {
+                                combinedExtent = combinedExtent.union(f.geometry.extent);
+                            }
+                        }
                     }
 
-                    const promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
-                    });
-
-                    Promise.all(promises).then(function(results) {
-                        const allFeatures = results.flat();
-                        generatePDF(allFeatures);
-                    }).catch(function(error) {
-                        console.error("Error generating report:", error);
-                        alert("An error occurred while generating the report. Please try again.");
-                    });
-                });
-
-                // Print Map Button
-                document.getElementById("printMapBtn").addEventListener("click", function() {
-                    if (selectedLocations.length === 0) {
-                        alert("No locations selected. Please select locations first.");
-                        return;
+                    if (combinedExtent) {
+                        await view.goTo(combinedExtent.expand(1.2));
                     }
 
-                    const promises = selectedLocations.map(function(layer) {
-                        return queryFeatures(layer);
+                    await waitForViewStable(view);
+
+                    const screenshot = await view.takeScreenshot({ width: 1400, height: 990 });
+
+                    // Restore original viewpoint
+                    if (originalViewpoint) {
+                        await view.goTo(originalViewpoint);
+                    }
+
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({
+                        orientation: 'landscape'
                     });
 
-                    Promise.all(promises).then(function(results) {
-                        const allFeatures = results.flat();
-                        printMap(allFeatures);
-                    }).catch(function(error) {
-                        console.error("Error printing map:", error);
-                        alert("An error occurred while printing the map. Please try again.");
-                    });
-                });
+                    doc.setFontSize(18);
+                    doc.text("City of Walnut Creek - Traffic Map", 14, 10);
+
+                    doc.setFontSize(12);
+                    doc.text(`Exported on: ${new Date().toLocaleString()}`, 14, 18);
+
+                    // Legend
+                    doc.setFontSize(10);
+                    doc.text("Legend:", 14, 23);
+
+                    // Cyan highlight for selected features
+                    doc.setFillColor(0, 255, 255);
+                    doc.circle(16, 26, 2, 'F');
+                    doc.text("Selected feature(s)", 22, 28);
+
+                    // Brown symbol for intersections
+                    doc.setFillColor(150, 75, 0);
+                    doc.circle(16, 31, 2, 'F');
+                    doc.text("Intersection", 22, 33);
+
+                    // Add the screenshot image
+                    doc.addImage(screenshot.data, "PNG", 9, 40, 224, 158.4);
+
+                    doc.save("traffic_map.pdf");
+                }
             });
         });
     </script>
 </body>
+
 </html>
