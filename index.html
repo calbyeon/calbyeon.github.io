@@ -7,10 +7,12 @@
     <title>Traffic Analytics Map</title>
     <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
 
-    <!-- jQuery and jQuery UI for Autocomplete -->
     <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.21/jspdf.plugin.autotable.min.js"></script>
 
     <script>
         var dojoConfig = {
@@ -21,10 +23,8 @@
             }]
         };
     </script>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.21/jspdf.plugin.autotable.min.js"></script>
     <script src="https://js.arcgis.com/4.30/"></script>
+
     <style>
         html,
         body {
@@ -33,8 +33,11 @@
             font-family: Arial, sans-serif;
             height: 100%;
             width: 100%;
+            overflow: hidden;
+            /* Prevent body scrollbars */
         }
 
+        /* Main container uses flex column layout */
         #app-container {
             display: flex;
             flex-direction: column;
@@ -43,148 +46,238 @@
             background: #f5f5f5;
         }
 
+        /* Header remains fixed height */
         #header {
             flex: 0 0 auto;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 20px;
+            padding: 25px 20px;
             background-color: #ffffff;
             border-bottom: 1px solid #ccc;
             font-size: 18px;
             font-weight: bold;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            z-index: 1;
         }
 
-        #main-content {
-            display: flex;
-            flex: 1 1 auto;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
+        /* Map View takes up remaining flexible space */
         #viewDiv {
-            flex: 2 1 60%;
+            flex: 1 1 auto;
             position: relative;
+            /* Set a minimum height to ensure the map has enough space for UI elements like the filter panel, preventing overlap on short browser windows. */
+            min-height: 320px;
+            width: 100%;
         }
 
+        /* Features Div (Table Container) at the bottom */
         #featuresDiv {
-            flex: 2 1 40%;
+            /* Changed flex-shrink from 0 to 1. This allows the table panel to shrink if the browser window becomes too short, yielding space to the map view above. */
+            flex: 0 1 45%;
             background-color: #ffffff;
             box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* Important for child scroll container */
+            border-top: 1px solid #ccc;
+            width: 100%;
         }
 
-        .features-inner {
-            flex: 1 1 auto;
-            overflow: auto;
-        }
-
+        /* Table content area scrolls if needed */
         #featuresContentDiv {
-            padding: 10px;
+            flex: 1 1 auto;
             box-sizing: border-box;
-            height: 100%;
             overflow: auto;
+            /* THIS IS THE SCROLL CONTAINER FOR THE TABLE */
             background: #ffffff;
+            /* Tells the scroll container to leave space at the top for the sticky header */
+            /* Adjust this value based on the actual height of your header row */
+            scroll-padding-top: 40px;
         }
 
+        /* Use separate border model for better sticky compatibility */
         .attribute-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             font-size: 13px;
             table-layout: fixed;
             background-color: #ffffff;
             border: 1px solid #ddd;
+            /* Border on table itself */
         }
 
+
+        /* --- Sticky Header CSS (Applied to TH) --- */
         .attribute-table thead th {
+            /* Positioning */
             position: sticky;
             top: 0;
+            /* Stick to the top of the scroll container (#featuresContentDiv) */
+            z-index: 2;
+            /* Needs to be above tbody rows (default 0/auto) */
+
+            /* Appearance */
             background-color: #4b8fcf;
+            /* Crucial for opacity */
             color: #fff;
             text-align: left;
             font-weight: bold;
-            border: 1px solid #ccc;
-            padding: 8px;
+            padding: 8px 10px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             cursor: pointer;
-            z-index: 10;
-        }
-
-        .attribute-table th,
-        .attribute-table td {
-            border: 1px solid #ddd;
-            padding: 8px;
             box-sizing: border-box;
             vertical-align: middle;
-            background: #fff;
+
+            /* Borders */
+            border-top: 1px solid #ccc;
+            border-left: 1px solid #ccc;
+            border-bottom: 2px solid #ccc;
+            /* Distinct bottom border */
         }
 
-        .attribute-table tr:nth-child(even) {
+        /* Adjust border overrides as needed */
+        .attribute-table thead tr:first-child th {
+            border-top: none;
+            /* Remove top border on the very first row of headers */
+        }
+
+        .attribute-table thead th:first-child {
+            border-left: none;
+            /* Remove left border on the first header cell */
+            padding-left: 10px;
+            /* Keep padding consistent */
+        }
+
+        .attribute-table thead th:last-child {
+            padding-right: 10px;
+            /* Keep padding consistent */
+        }
+
+        .attribute-table thead th .sort-indicator {
+            margin-left: 5px;
+            font-size: 0.8em;
+            color: #eee;
+        }
+
+        /* --- End Sticky Header CSS --- */
+
+
+        /* --- Table Body Cells --- */
+        .attribute-table tbody td {
+            padding: 8px 8px;
+            box-sizing: border-box;
+            vertical-align: middle;
+            word-wrap: break-word;
+
+            /* Borders */
+            border-top: 1px solid #ddd;
+            border-left: 1px solid #ddd;
+            z-index: 1;
+            /* Lower z-index than sticky headers */
+        }
+
+        .attribute-table tbody td:first-child {
+            border-left: none;
+            /* Remove left border on first body cell */
+            padding-left: 10px;
+        }
+
+        .attribute-table tbody td:last-child {
+            padding-right: 10px;
+        }
+
+        /* --- End Table Body Cells --- */
+
+
+        /* Background styles */
+        .attribute-table tbody tr:nth-child(even) td {
             background-color: #f9f9f9;
         }
 
-        .attribute-table tbody tr:hover {
+        .attribute-table tbody tr:nth-child(odd) td {
+            background-color: #ffffff;
+        }
+
+        .attribute-table tbody tr:hover td {
             background-color: #e8f0fe;
         }
 
-        #filterDiv {
-            position: absolute;
-            top: 100px;
-            right: 20px;
-            z-index: 20;
+        /* 'No features' row styling */
+        .attribute-table .no-features-row td {
+            text-align: center;
+            font-style: italic;
+            color: #666;
+            background-color: #fff !important;
+            border-top: 1px solid #ddd;
+            border-left: 1px solid #ddd;
+        }
+
+        .attribute-table .no-features-row td:first-child:last-child {
+            border-left: none;
+        }
+
+        #filterDiv,
+        #reportingDiv {
             background-color: #ffffff;
             padding: 15px;
             border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            width: 250px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             font-size: 14px;
             border: 1px solid #ccc;
+            margin: 10px;
+            max-height: calc(100vh - 150px);
+            overflow-y: auto;
+            z-index: 50;
+            /* Ensure they are above sticky headers */
         }
 
-        #filterDiv label {
+        #filterDiv {
+            width: 270px;
+        }
+
+        #filterControls label {
             font-weight: bold;
             margin-bottom: 5px;
-            display: inline-block;
+            display: block;
         }
 
-        #filterDiv select,
-        #filterDiv input {
+        #filterControls select,
+        #filterControls input {
             width: 100%;
-            margin-top: 5px;
-            margin-bottom: 10px;
-            padding: 5px;
+            margin-top: 3px;
+            margin-bottom: 12px;
+            padding: 6px;
             font-size: 14px;
             border: 1px solid #ccc;
             border-radius: 3px;
+            box-sizing: border-box;
         }
 
-        #reportingDiv {
-            position: absolute;
-            top: 68px;
-            left: 70px;
-            z-index: 20;
-            background-color: #ffffff;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            font-size: 14px;
-            border: 1px solid #ccc;
+        #filterControls select[multiple] {
+            height: auto;
         }
 
         #reportingDiv button {
             padding: 8px 15px;
-            margin-right: 10px;
+            margin-left: 10px;
             font-size: 14px;
             border: 1px solid #ccc;
             border-radius: 4px;
             cursor: pointer;
             background: linear-gradient(to bottom, #f7f7f7, #e2e2e2);
-            transition: background 0.3s, border-color 0.3s;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        #reportingDiv select {
+            padding: 8px 5px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            vertical-align: middle;
         }
 
         #reportingDiv button:hover {
@@ -201,37 +294,38 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            transform: translate(-50%, -50%);
             z-index: 1000;
             display: none;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+
+            100% {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
         }
 
         #filterStatus {
             margin-top: 10px;
             color: #555;
             font-size: 12px;
+            line-height: 1.4;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
         }
 
-        .print-title,
-        .print-legend {
-            display: none;
-            position: absolute;
-            background: #fff;
-            padding: 10px;
-            border: 1px solid #ccc;
-        }
-
-        .print-title {
-            top: 10px;
-            left: 10px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .print-legend {
-            top: 60px;
-            left: 10px;
-            font-size: 14px;
+        #filterStatus strong {
+            display: block;
+            margin-bottom: 4px;
         }
     </style>
 </head>
@@ -242,858 +336,986 @@
             <div>City of Walnut Creek</div>
             <div>Traffic Analytics Map</div>
         </header>
-        <div id="main-content">
-            <div id="viewDiv">
-                <div class="print-title">City of Walnut Creek - Traffic Map</div>
-                <div class="print-legend">
-                    <strong>Legend:</strong><br>
-                    Cyan highlight = Selected feature(s)<br>
-                    Blue symbols = Other features
-                </div>
-            </div>
-            <div id="featuresDiv">
-                <div class="features-inner" id="featuresInnerDiv">
-                    <div class="features-content" id="featuresContentDiv">
-                        <table class="attribute-table" id="attributeTable">
-                            <thead></thead>
-                            <tbody>
-                                <tr>
-                                    <td colspan="28">No features match the selected filters.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+
+        <div id="viewDiv">
+            <div id="loadingSpinner"></div>
+        </div>
+
+        <div id="featuresDiv">
+            <!-- This div handles the scrolling -->
+            <div id="featuresContentDiv">
+                <table class="attribute-table" id="attributeTable">
+                    <thead></thead> <!-- Headers added dynamically -->
+                    <tbody></tbody> <!-- Data added dynamically -->
+                </table>
             </div>
         </div>
-        <div id="filterDiv">
+
+        <!-- Templates for UI elements -->
+        <div id="filterDivTemplate" style="display: none;">
             <div id="filterControls"></div>
-            <div id="filterStatus">If features are selected, filters apply only to them; otherwise globally. Clicking
-                empty space unselects all. All filters remove non-matching features.</div>
+            <div id="filterStatus">
+                <strong>Filter Behavior:</strong>
+                If features are selected (highlighted cyan on map), filters apply only to the selection. Otherwise,
+                filters apply globally.<br>
+                Clicking empty map space unselects all features. Filters hide non-matching features/data.
+            </div>
         </div>
-        <div id="reportingDiv">
-            <select id="reportFormat">
+
+        <div id="reportingDivTemplate" style="display: none;">
+            <select id="reportFormat" aria-label="Select Report Format">
                 <option value="pdf">PDF</option>
                 <option value="csv">CSV</option>
             </select>
             <button id="generateReportBtn" aria-label="Generate Report">Generate Report</button>
-            <button id="printMapBtn" aria-label="Export Map">Export Map</button>
+            <button id="printMapBtn" aria-label="Export Map">Export Map PDF</button>
         </div>
-        <div id="loadingSpinner">
-            <img src="spinner.gif" alt="Loading..." />
-        </div>
-    </div>
 
+    </div>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
+            // --- Constants ---
             const DATA_TYPE_FIELD = "Data_Type";
             const YEAR_FIELD = "Year";
             const PERIOD_FIELD = "Period";
             const MAJOR_STREETS_FIELD = "Major_Streets";
             const MINOR_STREETS_FIELD = "Minor_Streets";
+            const STREET_FILTER_DEBOUNCE_MS = 300;
 
+            const VIEW_DIV_ID = "viewDiv";
+            const FILTER_DIV_ID = "filterDiv";
+            const REPORTING_DIV_ID = "reportingDiv";
+            const ATTRIBUTE_TABLE_ID = "attributeTable";
+            const LOADING_SPINNER_ID = "loadingSpinner";
+            const FILTER_CONTROLS_ID = "filterControls";
+            const DATA_TYPE_FILTER_ID = "dataTypeFilter";
+            const YEAR_FILTER_ID = "yearFilter";
+            const PERIOD_FILTER_ID = "periodFilter";
+            const STREET_FILTER_ID = "streetFilter";
+            const GENERATE_REPORT_BTN_ID = "generateReportBtn";
+            const PRINT_MAP_BTN_ID = "printMapBtn";
+            const REPORT_FORMAT_ID = "reportFormat";
+
+            // --- State Variables ---
             let map, view;
-            let allLayers = [];
-            let highlightHandle = null;
+            let allLayers = []; // Will hold FeatureLayers from the WebMap
+            let highlightHandles = {};
             let allYears = new Set();
-
+            let streetList = [];
             let currentDataType = "All";
             let currentYears = [];
             let currentPeriod = "All";
             let currentStreet = "";
-
             let selectedFeatures = [];
-            let filteredFeatures = [];
-
-            let currentHeadersToDisplay = [];
+            let filteredAndVisibleFeatures = [];
+            let relatedDataCache = {};
+            let currentTableHeaders = [];
             let currentTableData = [];
-
             let originalViewpoint = null;
-            let streetList = [];
+            let streetFilterTimeout = null;
 
+            // --- ArcGIS Modules ---
             require([
-                "esri/Map",
+                "esri/WebMap",
                 "esri/views/MapView",
                 "esri/layers/FeatureLayer",
                 "esri/Graphic",
                 "esri/rest/support/Query",
                 "esri/rest/support/RelationshipQuery",
-                "esri/layers/support/FeatureFilter"
-            ], function (Map, MapView, FeatureLayer, Graphic, Query, RelationshipQuery, FeatureFilter) {
+                "esri/layers/support/FeatureFilter",
+                "esri/geometry/Extent",
+                "esri/core/reactiveUtils"
+            ], function (
+                WebMap, MapView, FeatureLayer, Graphic, Query, RelationshipQuery, FeatureFilter, Extent,
+                reactiveUtils
+            ) {
 
-                init();
+                // ===========================================================
+                // FUNCTION DEFINITIONS
+                // ===========================================================
 
-                async function init() {
-                    showLoadingSpinner();
-                    map = new Map({ basemap: "streets-navigation-vector" });
-
-                    view = new MapView({
-                        container: "viewDiv",
-                        map: map,
-                        center: [-122.063686, 37.901657],
-                        zoom: 13
-                    });
-
-                    const baseUrl = "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/Aggregated_PEAK_Locations_WFL1/FeatureServer";
-                    const layerIds = Array.from({ length: 104 }, (_, i) => i);
-
-                    await Promise.all(layerIds.map(async (id) => {
-                        const layerUrl = `${baseUrl}/${id}`;
-                        const isSpatial = await isSpatialLayer(layerUrl);
-                        if (isSpatial) {
-                            try {
-                                const layer = new FeatureLayer({
-                                    url: layerUrl,
-                                    outFields: ["*"],
-                                    id: `layer-${id}`
-                                });
-                                await layer.load();
-                                allLayers.push(layer);
-                                map.add(layer);
-                            } catch (error) {
-                                console.error(`Error adding layer ID ${id}:`, error);
-                            }
-                        }
-                    }));
-
-                    if (allLayers.length === 0) {
-                        console.error("No spatial layers found.");
-                        hideLoadingSpinner();
-                        return;
-                    }
-
-                    view.when(() => {
-                        originalViewpoint = view.viewpoint.clone();
-                        zoomToAllLayers(allLayers);
-
-                        // Populate street list first
-                        populateStreetList(allLayers).then(() => {
-                            // Then initialize the year filter
-                            initializeYearFilter(allLayers).then(() => {
-                                // Create filter elements (this creates #streetFilter)
-                                createFilterElements();
-
-                                // Now that #streetFilter is created, initialize autocomplete
-                                $("#streetFilter").autocomplete({
-                                    source: streetList,
-                                    minLength: 0
-                                }).focus(function () {
-                                    $(this).autocomplete("search", "");
-                                });
-
-                                // Finally, apply filters
-                                applyFilters();
-                            });
-
-                            view.on("click", handleMapClick);
-
-                            document.getElementById("generateReportBtn").addEventListener("click", generateReport);
-                            document.getElementById("printMapBtn").addEventListener("click", exportMapAsPDF);
-                        });
-                    }).catch((error) => {
-                        console.error("Error loading the map:", error);
-                    }).finally(() => {
-                        hideLoadingSpinner();
-                    });
-                }
-
-                function showLoadingSpinner() {
-                    document.getElementById("loadingSpinner").style.display = "block";
-                }
-
-                function hideLoadingSpinner() {
-                    document.getElementById("loadingSpinner").style.display = "none";
-                }
-
-                async function isSpatialLayer(layerUrl) {
-                    try {
-                        const response = await fetch(layerUrl + "?f=json");
-                        const data = await response.json();
-                        return data.geometryType !== undefined && data.geometryType !== null;
-                    } catch (error) {
-                        console.error("Error checking if layer is spatial:", error);
-                        return false;
-                    }
-                }
-
-                function zoomToAllLayers(layers) {
-                    const extents = layers.map(layer => layer.fullExtent).filter(extent => extent);
-                    if (extents.length > 0) {
-                        view.goTo(extents).catch((error) => {
-                            console.error("Error zooming:", error);
-                        });
-                    }
+                function addUiElements() {
+                    const filterDivTemplate = document.getElementById('filterDivTemplate');
+                    const reportingDivTemplate = document.getElementById('reportingDivTemplate');
+                    if (!filterDivTemplate || !reportingDivTemplate) { console.error("UI template elements not found!"); return; }
+                    const filterDiv = filterDivTemplate.cloneNode(true);
+                    filterDiv.id = FILTER_DIV_ID;
+                    filterDiv.style.display = 'block';
+                    view.ui.add(filterDiv, "top-right");
+                    const reportingDiv = reportingDivTemplate.cloneNode(true);
+                    reportingDiv.id = REPORTING_DIV_ID;
+                    reportingDiv.style.display = 'flex';
+                    reportingDiv.style.alignItems = 'center';
+                    view.ui.add(reportingDiv, "top-left");
                 }
 
                 async function populateStreetList(spatialLayers) {
                     const streetSet = new Set();
-                    const layerPromises = spatialLayers.map(layer => {
-                        const query = layer.createQuery();
-                        query.where = "1=1";
-                        query.returnDistinctValues = true;
-                        query.outFields = [MAJOR_STREETS_FIELD, MINOR_STREETS_FIELD].filter(Boolean);
+                    const hasMajor = spatialLayers.some(l => l.fields?.some(f => f.name === MAJOR_STREETS_FIELD));
+                    const hasMinor = spatialLayers.some(l => l.fields?.some(f => f.name === MINOR_STREETS_FIELD));
+                    const fieldsToQuery = [];
+                    if (hasMajor) fieldsToQuery.push(MAJOR_STREETS_FIELD);
+                    if (hasMinor) fieldsToQuery.push(MINOR_STREETS_FIELD);
 
-                        return layer.queryFeatures(query).then(result => {
-                            result.features.forEach(feature => {
-                                [MAJOR_STREETS_FIELD, MINOR_STREETS_FIELD].forEach(fld => {
-                                    if (feature.attributes[fld]) {
-                                        const streetName = feature.attributes[fld];
-                                        if (streetName) {
-                                            streetSet.add(streetName);
-                                        }
-                                    }
-                                });
-                            });
-                        }).catch(error => {
-                            console.error("Error querying streets:", error);
-                        });
-                    });
-
-                    await Promise.all(layerPromises);
-                    streetList = Array.from(streetSet).sort();
-                }
-
-                async function initializeYearFilter(spatialLayers) {
-                    const yearPromises = spatialLayers.map(layer => {
-                        const getYearsFromSource = async (source, fields) => {
-                            const yearField = fields.find(f => f.name.toLowerCase() === YEAR_FIELD.toLowerCase());
-                            if (yearField) {
-                                const query = source.createQuery();
-                                query.where = "1=1";
-                                query.outFields = [yearField.name];
-                                query.returnDistinctValues = true;
-                                query.returnGeometry = false;
-                                try {
-                                    const result = await source.queryFeatures(query);
-                                    result.features.forEach(feature => {
-                                        const year = feature.attributes[yearField.name];
-                                        if (year) {
-                                            allYears.add(year);
-                                        }
-                                    });
-                                } catch (error) {
-                                    console.error("Error querying years:", error);
-                                }
-                            }
-                        };
-
-                        const layerPromises = [
-                            getYearsFromSource(layer, layer.fields)
-                        ];
-
-                        (layer.relationships || []).forEach(rel => {
-                            const relatedTableUrl = `${layer.url.replace(/\/\d+$/, "")}/${rel.relatedTableId}`;
-                            const relatedTable = new FeatureLayer({
-                                url: relatedTableUrl,
-                                outFields: ["*"]
-                            });
-                            layerPromises.push(
-                                relatedTable.load().then(() => getYearsFromSource(relatedTable, relatedTable.fields)).catch(() => { })
-                            );
-                        });
-
-                        return Promise.all(layerPromises);
-                    });
-
-                    await Promise.all(yearPromises.flat());
-                }
-
-                function createFilterElements() {
-                    const filterControlsDiv = document.getElementById("filterControls");
-
-                    // Data Type Filter
-                    const dataTypeLabel = document.createElement("label");
-                    dataTypeLabel.textContent = "Filter by Data Type:";
-                    dataTypeLabel.setAttribute("for", "dataTypeFilter");
-                    const dataTypeSelect = document.createElement('select');
-                    dataTypeSelect.id = 'dataTypeFilter';
-                    const dataTypes = ["All", "Bikes", "Intersection Info", "PHF", "Pedestrian", "Heavy Vehicles", "Turning Movement"];
-                    dataTypes.forEach((type) => {
-                        const option = document.createElement('option');
-                        option.value = type;
-                        option.text = type;
-                        dataTypeSelect.add(option);
-                    });
-                    filterControlsDiv.appendChild(dataTypeLabel);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(dataTypeSelect);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(document.createElement("br"));
-
-                    // Year Filter
-                    const yearLabel = document.createElement("label");
-                    yearLabel.textContent = "Filter by Year:";
-                    yearLabel.setAttribute("for", "yearFilter");
-                    const yearSelect = document.createElement('select');
-                    yearSelect.id = "yearFilter";
-                    yearSelect.multiple = true;
-                    yearSelect.size = 5;
-
-                    const allYearsOption = document.createElement("option");
-                    allYearsOption.value = "All";
-                    allYearsOption.textContent = "All";
-                    yearSelect.appendChild(allYearsOption);
-
-                    const sortedYears = Array.from(allYears).sort();
-                    sortedYears.forEach(year => {
-                        const option = document.createElement("option");
-                        option.value = year;
-                        option.textContent = year;
-                        yearSelect.appendChild(option);
-                    });
-
-                    filterControlsDiv.appendChild(yearLabel);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(yearSelect);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(document.createElement("br"));
-
-                    // Period Filter
-                    const periodLabel = document.createElement("label");
-                    periodLabel.textContent = "Filter by Period:";
-                    periodLabel.setAttribute("for", "periodFilter");
-                    const periodSelect = document.createElement("select");
-                    periodSelect.id = "periodFilter";
-                    const periods = ["All", "AM", "MID", "PM"];
-                    periods.forEach((period) => {
-                        const option = document.createElement("option");
-                        option.value = period;
-                        option.textContent = period;
-                        periodSelect.appendChild(option);
-                    });
-                    filterControlsDiv.appendChild(periodLabel);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(periodSelect);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(document.createElement("br"));
-
-                    // Street Filter
-                    const streetLabel = document.createElement("label");
-                    streetLabel.textContent = "Filter by Street:";
-                    streetLabel.setAttribute("for", "streetFilter");
-                    const streetInput = document.createElement("input");
-                    streetInput.id = "streetFilter";
-                    streetInput.placeholder = "Enter street name";
-                    filterControlsDiv.appendChild(streetLabel);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(streetInput);
-                    filterControlsDiv.appendChild(document.createElement("br"));
-                    filterControlsDiv.appendChild(document.createElement("br"));
-
-                    streetInput.addEventListener('input', applyFilters);
-                    streetInput.addEventListener('change', applyFilters);
-
-                    document.getElementById("dataTypeFilter").addEventListener('change', applyFilters);
-                    document.getElementById("yearFilter").addEventListener('change', applyFilters);
-                    document.getElementById("periodFilter").addEventListener('change', applyFilters);
-                }
-
-                async function applyFilters() {
-                    const dataType = document.getElementById("dataTypeFilter").value;
-                    const yearSelect = document.getElementById("yearFilter");
-                    const selectedYearOptions = Array.from(yearSelect.selectedOptions);
-                    const years = selectedYearOptions.map(option => option.value);
-                    const period = document.getElementById('periodFilter').value;
-                    const street = document.getElementById('streetFilter').value.trim();
-
-                    currentDataType = dataType;
-                    currentYears = years;
-                    currentPeriod = period;
-                    currentStreet = street;
-
-                    let mainWhereClauses = [];
-                    if (street) {
-                        mainWhereClauses.push(`(${MAJOR_STREETS_FIELD} LIKE '%${street}%' OR ${MINOR_STREETS_FIELD} LIKE '%${street}%')`);
-                    }
-
-                    const mainWhere = mainWhereClauses.length > 0 ? mainWhereClauses.join(' AND ') : "1=1";
-                    allLayers.forEach(layer => {
-                        layer.definitionExpression = mainWhere;
-                    });
-
-                    let matchedFeatures = [];
-                    if (selectedFeatures.length === 0) {
-                        for (const layer of allLayers) {
-                            const visibleFeatures = await queryAllVisibleFeatures(layer);
-                            const filtered = await clientSideRelatedDataFilter(layer, visibleFeatures, dataType, years, period);
-                            matchedFeatures = matchedFeatures.concat(filtered);
-                        }
-
-                        for (const layer of allLayers) {
-                            const layerView = await view.whenLayerView(layer);
-                            const layerOIDs = matchedFeatures.filter(f => f.layer.id === layer.id)
-                                .map(f => f.attributes[layer.objectIdField]);
-                            const filter = new FeatureFilter({
-                                objectIds: layerOIDs
-                            });
-                            layerView.filter = filter;
-                        }
-                    } else {
-                        const featsByLayer = {};
-                        selectedFeatures.forEach(f => {
-                            if (!featsByLayer[f.layer.id]) featsByLayer[f.layer.id] = [];
-                            featsByLayer[f.layer.id].push(f);
-                        });
-
-                        let selectionMatched = [];
-                        for (const layerId in featsByLayer) {
-                            const layer = allLayers.find(l => l.id === layerId);
-                            const baseFeats = featsByLayer[layerId];
-                            const filtered = await clientSideRelatedDataFilter(layer, baseFeats, dataType, years, period);
-                            selectionMatched = selectionMatched.concat(filtered);
-                        }
-                        matchedFeatures = selectionMatched;
-
-                        for (const layer of allLayers) {
-                            const layerView = await view.whenLayerView(layer);
-                            layerView.filter = null;
-                        }
-                    }
-
-                    filteredFeatures = matchedFeatures;
-
-                    if (highlightHandle) {
-                        highlightHandle.remove();
-                        highlightHandle = null;
-                    }
-                    if (selectedFeatures.length > 0) {
-                        const matchedOIDs = new Set(filteredFeatures.map(f => f.attributes[f.layer.objectIdField]));
-                        const byLayer = {};
-                        const actuallySelectedMatched = selectedFeatures.filter(f => matchedOIDs.has(f.attributes[f.layer.objectIdField]));
-                        actuallySelectedMatched.forEach(f => {
-                            if (!byLayer[f.layer.id]) byLayer[f.layer.id] = [];
-                            byLayer[f.layer.id].push(f.attributes[f.layer.objectIdField]);
-                        });
-
-                        for (const layerId in byLayer) {
-                            const layer = allLayers.find(l => l.id === layerId);
-                            const layerView = await view.whenLayerView(layer);
-                            highlightHandle = layerView.highlight(byLayer[layerId]);
-                        }
-                    }
-
-                    displayAttributes(filteredFeatures);
-                }
-
-                async function queryAllVisibleFeatures(layer) {
-                    const query = layer.createQuery();
-                    query.where = layer.definitionExpression || "1=1";
-                    query.outFields = ["*"];
-                    query.returnGeometry = true;
-                    const featureSet = await layer.queryFeatures(query);
-                    return featureSet.features;
-                }
-
-                async function clientSideRelatedDataFilter(layer, features, dataType, years, period) {
-                    const objectIds = features.map(f => f.attributes[layer.objectIdField]);
-                    const relatedDataForAllFeatures = await fetchRelatedData(layer, objectIds);
-
-                    const matched = [];
-                    features.forEach(feature => {
-                        const relatedDataArray = relatedDataForAllFeatures[feature.attributes[layer.objectIdField]] || [];
-                        const allRecords = [feature.attributes, ...relatedDataArray];
-                        const anyMatch = allRecords.some(rec => doesFeatureMatchFilters(rec, dataType, years, period));
-                        if (anyMatch) matched.push(feature);
-                    });
-                    return matched;
-                }
-
-                function doesFeatureMatchFilters(attributes, dataType, years, period) {
-                    let match = true;
-
-                    if (dataType !== "All") {
-                        const val = attributes[DATA_TYPE_FIELD];
-                        if (!val || val !== dataType) match = false;
-                    }
-
-                    if (match && years.length > 0 && !years.includes("All")) {
-                        const val = attributes[YEAR_FIELD];
-                        if (!val || !years.includes(val.toString())) match = false;
-                    }
-
-                    if (match && period !== "All") {
-                        const val = attributes[PERIOD_FIELD];
-                        if (!val || val !== period) match = false;
-                    }
-
-                    return match;
-                }
-
-                async function fetchRelatedData(layer, objectIds) {
-                    const relatedDataMap = {};
-                    if (!layer.relationships || layer.relationships.length === 0) {
-                        return relatedDataMap;
-                    }
-
-                    const relationshipPromises = layer.relationships.map(async relationship => {
-                        const relationshipQuery = new RelationshipQuery();
-                        relationshipQuery.relationshipId = relationship.id;
-                        relationshipQuery.objectIds = objectIds;
-                        relationshipQuery.outFields = ["*"];
-                        relationshipQuery.returnGeometry = false;
-
-                        try {
-                            const result = await layer.queryRelatedFeatures(relationshipQuery);
-                            for (const objectId in result) {
-                                if (!relatedDataMap[objectId]) relatedDataMap[objectId] = [];
-                                relatedDataMap[objectId].push(...result[objectId].features.map(f => f.attributes));
-                            }
-                        } catch (error) {
-                            console.error(`Error querying related features:`, error);
-                        }
-                    });
-
-                    await Promise.all(relationshipPromises);
-                    return relatedDataMap;
-                }
-
-                function displayAttributes(features) {
-                    const attributeTable = document.getElementById("attributeTable");
-                    const thead = attributeTable.querySelector("thead");
-                    const tbody = attributeTable.querySelector("tbody");
-
-                    thead.innerHTML = "";
-                    tbody.innerHTML = "";
-
-                    if (features.length === 0) {
-                        const noDataRow = document.createElement("tr");
-                        const noDataCell = document.createElement("td");
-                        noDataCell.colSpan = 28;
-                        noDataCell.textContent = "No features match the selected filters.";
-                        noDataRow.appendChild(noDataCell);
-                        tbody.appendChild(noDataRow);
-                        currentHeadersToDisplay = [];
-                        currentTableData = [];
+                    if (fieldsToQuery.length === 0) {
+                        console.warn("Neither Major_Streets nor Minor_Streets field found in any loaded FeatureLayer. Cannot populate street list.");
+                        streetList = [];
                         return;
                     }
 
-                    (async () => {
-                        const layerObjectIdsMap = {};
-                        features.forEach(feature => {
-                            if (!layerObjectIdsMap[feature.layer.id]) {
-                                layerObjectIdsMap[feature.layer.id] = [];
-                            }
-                            layerObjectIdsMap[feature.layer.id].push(feature.attributes[feature.layer.objectIdField]);
-                        });
+                    console.log("Querying fields for street list:", fieldsToQuery);
 
-                        const allRelatedDataPromises = Object.keys(layerObjectIdsMap).map(async layerId => {
-                            const layer = allLayers.find(l => l.id === layerId);
-                            const objectIds = layerObjectIdsMap[layerId];
-                            const relatedData = await fetchRelatedData(layer, objectIds);
-                            return { layer, relatedData };
-                        });
+                    const query = new Query({
+                        where: "1=1",
+                        returnDistinctValues: true,
+                        outFields: fieldsToQuery,
+                        returnGeometry: false
+                    });
 
-                        const allRelatedData = await Promise.all(allRelatedDataPromises);
-
-                        const relatedDataMap = {};
-                        allRelatedData.forEach(({ relatedData }) => {
-                            for (const objectId in relatedData) {
-                                if (!relatedDataMap[objectId]) {
-                                    relatedDataMap[objectId] = [];
-                                }
-                                relatedDataMap[objectId].push(...relatedData[objectId]);
-                            }
-                        });
-
-                        const headersSet = new Set();
-                        const tableData = [];
-                        const columnValues = {};
-
-                        features.forEach(feature => {
-                            const objectId = feature.attributes[feature.layer.objectIdField];
-                            const relatedDataArray = relatedDataMap[objectId] || [];
-
-                            const mainRecordMatches = doesFeatureMatchFilters(feature.attributes, currentDataType, currentYears, currentPeriod);
-                            const matchingRelated = relatedDataArray.filter(r => doesFeatureMatchFilters(r, currentDataType, currentYears, currentPeriod));
-
-                            if (matchingRelated.length === 0 && mainRecordMatches) {
-                                const rowData = {};
-                                for (const attr in feature.attributes) {
-                                    headersSet.add(attr);
-                                    rowData[attr] = feature.attributes[attr] ?? "N/A";
-                                    if (!columnValues[attr]) columnValues[attr] = new Set();
-                                    columnValues[attr].add(rowData[attr]);
-                                }
-                                tableData.push(rowData);
-                            } else if (matchingRelated.length > 0) {
-                                matchingRelated.forEach(relAttributes => {
-                                    const rowData = {};
-                                    for (const attr in feature.attributes) {
-                                        headersSet.add(attr);
-                                        rowData[attr] = feature.attributes[attr] ?? "N/A";
-                                        if (!columnValues[attr]) columnValues[attr] = new Set();
-                                        columnValues[attr].add(rowData[attr]);
-                                    }
-                                    for (const attr in relAttributes) {
-                                        headersSet.add(attr);
-                                        rowData[attr] = relAttributes[attr] ?? "N/A";
-                                        if (!columnValues[attr]) columnValues[attr] = new Set();
-                                        columnValues[attr].add(rowData[attr]);
-                                    }
-                                    tableData.push(rowData);
-                                });
-                            }
-                        });
-
-                        const allHeaders = Array.from(headersSet);
-
-                        const fieldsToExclude = [
-                            "OBJECTID", "Shape", "SHAPE_Length", "SHAPE_Area", "Intersection_IDs", "LocationID", "Intersection_ID",
-                            "Longitude", "Latitude", "PopupInfo", "Names", "Traffic_DataCollection_Date", "Major_Streets", "Minor_Streets",
-                            "City", "State", "Intersection_Type", "Leg_Type"
-                        ];
-
-                        let headersToDisplay = allHeaders.filter(attr => {
-                            if (fieldsToExclude.includes(attr)) {
-                                return false;
-                            }
-                            const values = columnValues[attr];
-                            const allValuesNull = values.size === 1 && (values.has("N/A") || values.has(null) || values.has(undefined));
-                            return !allValuesNull;
-                        });
-
-                        // Reorder columns so E, W, N, S appear just before EBL
-                        const directionCols = ["E", "W", "N", "S"];
-                        const eblIndex = headersToDisplay.indexOf("EBL");
-                        if (eblIndex !== -1) {
-                            const extractedDirections = directionCols.filter(d => headersToDisplay.includes(d));
-                            extractedDirections.forEach(d => {
-                                const idx = headersToDisplay.indexOf(d);
-                                if (idx !== -1) {
-                                    headersToDisplay.splice(idx, 1);
-                                }
-                            });
-                            headersToDisplay.splice(eblIndex, 0, ...extractedDirections);
+                    const queryPromises = spatialLayers.map(layer => {
+                        const layerHasField = fieldsToQuery.some(fld => layer.fields?.some(f => f.name === fld));
+                        if (!layerHasField) {
+                            return Promise.resolve(); // Resolve immediately if layer lacks fields
                         }
 
-                        const headerRow = document.createElement("tr");
-                        headersToDisplay.forEach((headerText, index) => {
-                            const headerCell = document.createElement('th');
-                            headerCell.innerHTML = `${headerText} <span class="sort-indicator">⇅</span>`;
-                            headerCell.addEventListener("click", function () {
-                                sortTable(attributeTable, index, this);
-                            });
-                            headerRow.appendChild(headerCell);
-                        });
-                        thead.appendChild(headerRow);
+                        return layer.queryFeatures(query)
+                            .then(result => {
+                                result.features.forEach(feature => {
+                                    fieldsToQuery.forEach(fld => {
+                                        if (feature.attributes && feature.attributes.hasOwnProperty(fld)) {
+                                            const streetName = feature.attributes[fld];
+                                            if (streetName && typeof streetName === 'string' && streetName.trim()) {
+                                                streetSet.add(streetName.trim());
+                                            }
+                                        }
+                                    });
+                                });
+                            }).catch(error => console.warn(`Error querying streets from layer ${layer.title || layer.id}:`, error));
+                    });
 
-                        tableData.forEach(rowData => {
-                            const row = document.createElement("tr");
-                            headersToDisplay.forEach(header => {
-                                const cell = document.createElement("td");
-                                cell.textContent = rowData[header] || 'N/A';
-                                row.appendChild(cell);
-                            });
-                            tbody.appendChild(row);
-                        });
-
-                        currentHeadersToDisplay = headersToDisplay;
-                        currentTableData = tableData;
-                    })();
+                    await Promise.all(queryPromises);
+                    streetList = Array.from(streetSet).sort();
+                    console.log(`Populated street list with ${streetList.length} unique names.`);
                 }
 
-                function sortTable(table, columnIndex, header) {
-                    const tbody = table.tBodies[0];
-                    const rows = Array.from(tbody.rows);
-                    const currentSort = header.dataset.sort === "asc" ? { asc: false } : { asc: true };
-                    header.dataset.sort = currentSort.asc ? "asc" : "desc";
+                async function populateYearsFromRelatedData(spatialLayer) {
+                    console.log(`Attempting to populate years from relationships of layer: ${spatialLayer?.title ?? 'undefined'}`);
+                    if (!spatialLayer || !spatialLayer.relationships || spatialLayer.relationships.length === 0) {
+                        console.log(`Layer ${spatialLayer?.title ?? 'N/A'} has no relationships defined or is not valid.`);
+                        return;
+                    }
+                    if (!YEAR_FIELD) {
+                        console.warn("YEAR_FIELD constant is not defined. Cannot query for years.");
+                        return;
+                    }
 
-                    rows.sort((a, b) => {
-                        const aText = a.cells[columnIndex].textContent.trim();
-                        const bText = b.cells[columnIndex].textContent.trim();
-                        const aNum = parseFloat(aText);
-                        const bNum = parseFloat(bText);
+                    const objectIdField = spatialLayer.objectIdField;
+                    if (!objectIdField) {
+                        console.error(`Layer ${spatialLayer.title || spatialLayer.id} does not have a valid objectIdField.`);
+                        return;
+                    }
 
-                        if (!isNaN(aNum) && !isNaN(bNum)) {
-                            return currentSort.asc ? aNum - bNum : bNum - aNum;
-                        } else {
-                            return currentSort.asc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+                    const parentQuery = new Query({
+                        where: "1=1",
+                        returnGeometry: false,
+                        outFields: [objectIdField],
+                        num: 1000
+                    });
+
+                    let parentOids = [];
+                    try {
+                        const parentResult = await spatialLayer.queryFeatures(parentQuery);
+                        parentOids = parentResult.features.map(f => f.attributes[objectIdField]);
+                        if (parentOids.length === 0) {
+                            console.log("No parent features found, cannot query related data.");
+                            return;
+                        }
+                        if (parentResult.exceededTransferLimit) {
+                            console.warn(`Parent feature query exceeded transfer limit for layer ${spatialLayer.title || spatialLayer.id}. Year list might be incomplete.`);
+                        }
+                    } catch (error) {
+                        console.error(`Error querying parent features for layer ${spatialLayer.title || spatialLayer.id}:`, error);
+                        return;
+                    }
+
+                    const relationshipPromises = [];
+
+                    for (const rel of spatialLayer.relationships) {
+                        let relatedTableHasYearField = false;
+                        try {
+                            const relatedTable = map.allTables.find(t => t.layerId === rel.relatedTableId) || map.allLayers.find(l => l.layerId === rel.relatedTableId);
+                            if (relatedTable) {
+                                if (!relatedTable.loaded) await relatedTable.load();
+                                relatedTableHasYearField = relatedTable.fields?.some(f => f.name === YEAR_FIELD);
+                            } else {
+                                console.warn(`Could not find related table/layer with ID ${rel.relatedTableId} in the map.`);
+                            }
+                        } catch (loadError) {
+                            console.warn(`Error loading related table ${rel.relatedTableId} to check fields:`, loadError);
+                        }
+
+                        if (!relatedTableHasYearField) {
+                            console.log(`Skipping relationship query for Rel ID ${rel.id} as related table does not contain the field '${YEAR_FIELD}'.`);
+                            continue;
+                        }
+
+                        const relQuery = new RelationshipQuery({
+                            relationshipId: rel.id,
+                            objectIds: parentOids,
+                            outFields: [YEAR_FIELD],
+                            returnGeometry: false
+                        });
+
+                        relationshipPromises.push(
+                            spatialLayer.queryRelatedFeatures(relQuery)
+                                .then(relatedResults => {
+                                    for (const parentOid in relatedResults) {
+                                        const relatedFeatures = relatedResults[parentOid]?.features ?? [];
+                                        relatedFeatures.forEach(relatedFeature => {
+                                            if (relatedFeature.attributes && relatedFeature.attributes.hasOwnProperty(YEAR_FIELD)) {
+                                                const year = relatedFeature.attributes[YEAR_FIELD];
+                                                if (year !== null && year !== undefined && String(year).trim() !== '') {
+                                                    allYears.add(String(year));
+                                                }
+                                            }
+                                        });
+                                    }
+                                })
+                                .catch(error => console.warn(`Error querying relationship ID ${rel.id} for layer ${spatialLayer.title || spatialLayer.id}:`, error))
+                        );
+                    }
+
+                    await Promise.all(relationshipPromises);
+                    console.log(`Finished querying relationships for layer ${spatialLayer.title || spatialLayer.id}. Total unique years found: ${allYears.size}`);
+                }
+
+                function createFilterElements() {
+                    const filterControlsDiv = document.getElementById(FILTER_CONTROLS_ID);
+                    if (!filterControlsDiv) { console.error(`Element ID '${FILTER_CONTROLS_ID}' not found.`); return; }
+                    filterControlsDiv.innerHTML = '';
+
+                    // Data Type Filter
+                    const dataTypes = ["All", "Bikes", "Intersection Info", "PHF", "Pedestrian", "Heavy Vehicles", "Turning Movement"];
+                    filterControlsDiv.innerHTML += `<label for="${DATA_TYPE_FILTER_ID}">Data Type:</label><select id="${DATA_TYPE_FILTER_ID}">${dataTypes.map(type => `<option value="${type}">${type}</option>`).join('')}</select>`;
+
+                    // Year Filter (Multiple Select)
+                    const sortedYears = Array.from(allYears).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+                    if (sortedYears.length === 0) {
+                        filterControlsDiv.innerHTML += `<label for="${YEAR_FILTER_ID}">Year:</label><select id="${YEAR_FILTER_ID}" disabled><option value="All">No Years Found</option></select>`;
+                    } else {
+                        filterControlsDiv.innerHTML += `<label for="${YEAR_FILTER_ID}">Year (Ctrl+Click):</label><select id="${YEAR_FILTER_ID}" multiple size="5"><option value="All" selected>All Years</option>${sortedYears.map(year => `<option value="${year}">${year}</option>`).join('')}</select>`;
+                    }
+
+                    // Period Filter
+                    const periods = ["All", "AM", "MID", "PM"];
+                    filterControlsDiv.innerHTML += `<label for="${PERIOD_FILTER_ID}">Period:</label><select id="${PERIOD_FILTER_ID}">${periods.map(period => `<option value="${period}">${period}</option>`).join('')}</select>`;
+
+                    // Street Name Filter (Autocomplete)
+                    filterControlsDiv.innerHTML += `<label for="${STREET_FILTER_ID}">Street Name:</label><input type="text" id="${STREET_FILTER_ID}" placeholder="Type street name...">`;
+                }
+
+                function initializeStreetAutocomplete() {
+                    const streetInput = $(`#${STREET_FILTER_ID}`);
+                    if (streetInput.length) {
+                        streetInput.autocomplete({
+                            source: streetList,
+                            minLength: 0,
+                            select: function (event, ui) {
+                                $(this).val(ui.item.value);
+                                applyFiltersAndDisplay();
+                                return false;
+                            },
+                            change: function (event, ui) {
+                                if (!ui.item) {
+                                    applyFiltersAndDisplay();
+                                }
+                            }
+                        }).focus(function () {
+                            if (!$(this).val()) {
+                                $(this).autocomplete("search", "");
+                            }
+                        });
+                    } else {
+                        console.error("Street filter input element not found for autocomplete.");
+                    }
+                }
+
+                function addEventListeners() {
+                    const filterControls = document.getElementById(FILTER_CONTROLS_ID);
+                    const reportingControls = document.getElementById(REPORTING_DIV_ID);
+                    const attributeTableHead = document.getElementById(ATTRIBUTE_TABLE_ID)?.querySelector('thead');
+
+                    filterControls?.addEventListener('change', (event) => {
+                        if (event.target?.tagName === 'SELECT') {
+                            if (event.target.id === YEAR_FILTER_ID) {
+                                const selectElement = event.target;
+                                const selectedOptions = Array.from(selectElement.selectedOptions).map(opt => opt.value);
+                                const allOption = selectElement.querySelector('option[value="All"]');
+
+                                if (selectedOptions.includes("All") && selectedOptions.length > 1) {
+                                    selectElement.querySelectorAll('option:not([value="All"])').forEach(opt => opt.selected = false);
+                                    if (allOption) allOption.selected = true;
+                                } else if (!selectedOptions.includes("All") && selectedOptions.length > 0 && allOption?.selected) {
+                                    allOption.selected = false;
+                                } else if (selectedOptions.length === 0 && allOption) {
+                                    allOption.selected = true;
+                                }
+                            }
+                            applyFiltersAndDisplay();
                         }
                     });
 
-                    while (tbody.firstChild) {
-                        tbody.removeChild(tbody.firstChild);
-                    }
+                    filterControls?.addEventListener('input', (event) => {
+                        if (event.target?.id === STREET_FILTER_ID) {
+                            clearTimeout(streetFilterTimeout);
+                            streetFilterTimeout = setTimeout(applyFiltersAndDisplay, STREET_FILTER_DEBOUNCE_MS);
+                        }
+                    });
 
-                    rows.forEach(row => tbody.appendChild(row));
-                    updateSortIndicators(table, columnIndex, currentSort.asc);
+                    view.on("click", handleMapClick);
+
+                    reportingControls?.addEventListener('click', (event) => {
+                        if (event.target?.id === GENERATE_REPORT_BTN_ID) generateReport();
+                        else if (event.target?.id === PRINT_MAP_BTN_ID) exportMapAsPDF();
+                    });
+
+                    attributeTableHead?.addEventListener('click', (event) => {
+                        const headerCell = event.target.closest('th');
+                        if (headerCell) {
+                            const colIndex = Array.from(headerCell.parentNode.children).indexOf(headerCell);
+                            sortTable(document.getElementById(ATTRIBUTE_TABLE_ID), colIndex, headerCell);
+                        }
+                    });
                 }
 
-                function updateSortIndicators(table, sortedColumn, asc) {
-                    const headers = table.tHead.rows[0].cells;
-                    for (let i = 0; i < headers.length; i++) {
-                        const indicator = headers[i].querySelector(".sort-indicator");
-                        if (i === sortedColumn) {
-                            indicator.textContent = asc ? "↑" : "↓";
-                        } else {
-                            indicator.textContent = "⇅";
+                async function applyFiltersAndDisplay() {
+                    showLoadingSpinner();
+                    console.log("Applying filters...");
+
+                    const dataTypeSelect = document.getElementById(DATA_TYPE_FILTER_ID);
+                    const yearSelect = document.getElementById(YEAR_FILTER_ID);
+                    const periodSelect = document.getElementById(PERIOD_FILTER_ID);
+                    const streetInput = document.getElementById(STREET_FILTER_ID);
+
+                    currentDataType = dataTypeSelect?.value ?? "All";
+                    currentPeriod = periodSelect?.value ?? "All";
+                    currentStreet = streetInput?.value.trim() ?? "";
+
+                    currentYears = yearSelect ? Array.from(yearSelect.selectedOptions).map(opt => opt.value) : [];
+                    if (currentYears.includes("All") || currentYears.length === 0) {
+                        currentYears = [];
+                    } else {
+                        currentYears = currentYears.filter(y => y !== "All");
+                    }
+
+                    const escapedStreet = currentStreet.replace(/'/g, "''");
+                    let definitionExpression = "1=1";
+                    if (currentStreet && MAJOR_STREETS_FIELD && MINOR_STREETS_FIELD) {
+                        const hasMajor = allLayers.some(l => l.fields?.some(f => f.name === MAJOR_STREETS_FIELD));
+                        const hasMinor = allLayers.some(l => l.fields?.some(f => f.name === MINOR_STREETS_FIELD));
+                        const conditions = [];
+                        if (hasMajor) conditions.push(`${MAJOR_STREETS_FIELD} LIKE '%${escapedStreet}%'`);
+                        if (hasMinor) conditions.push(`${MINOR_STREETS_FIELD} LIKE '%${escapedStreet}%'`);
+                        if (conditions.length > 0) {
+                            definitionExpression = `(${conditions.join(' OR ')})`;
                         }
                     }
+
+                    allLayers.forEach(layer => {
+                        if (layer.definitionExpression !== definitionExpression) {
+                            layer.definitionExpression = definitionExpression;
+                        }
+                    });
+
+                    let baseFeaturesToFilter = [];
+                    const isFilteringSelection = selectedFeatures.length > 0;
+
+                    if (isFilteringSelection) {
+                        baseFeaturesToFilter = selectedFeatures;
+                        await clearAllLayerViewFilters();
+                    } else {
+                        baseFeaturesToFilter = await queryAllVisibleFeaturesAcrossLayers(allLayers);
+                    }
+
+                    relatedDataCache = await fetchRelatedDataForFeatures(baseFeaturesToFilter);
+                    filteredAndVisibleFeatures = clientSideFilterFeatures(baseFeaturesToFilter, relatedDataCache, currentYears, currentPeriod, currentDataType);
+                    await updateMapViewBasedOnFilters(isFilteringSelection, filteredAndVisibleFeatures);
+                    displayAttributes(filteredAndVisibleFeatures, relatedDataCache);
+                    hideLoadingSpinner();
+                }
+
+                function clientSideFilterFeatures(features, relatedDataMap, filterYears, filterPeriod, filterDataType) {
+                    if (filterYears.length === 0 && filterPeriod === "All" && filterDataType === "All") {
+                        return features;
+                    }
+
+                    return features.filter(f => {
+                        const oidField = f.layer?.objectIdField;
+                        if (!oidField) return false;
+                        const oid = f.attributes[oidField];
+                        const relatedRecs = relatedDataMap[oid] || [];
+
+                        if (relatedRecs.some(relAttrs => doesRecordMatchFilters(relAttrs, filterYears, filterPeriod, filterDataType))) {
+                            return true;
+                        }
+
+                        const mainMatches = doesRecordMatchFilters(f.attributes, filterYears, filterPeriod, filterDataType);
+                        if (mainMatches) {
+                            const mainCanMatchDataType = filterDataType === "All" || (f.attributes && f.attributes.hasOwnProperty(DATA_TYPE_FIELD));
+                            const mainCanMatchYear = filterYears.length === 0 || (f.attributes && f.attributes.hasOwnProperty(YEAR_FIELD));
+                            const mainCanMatchPeriod = filterPeriod === "All" || (f.attributes && f.attributes.hasOwnProperty(PERIOD_FIELD));
+                            if (mainCanMatchDataType && mainCanMatchYear && mainCanMatchPeriod) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                }
+
+                function doesRecordMatchFilters(attrs, filterYears, filterPeriod, filterDataType) {
+                    if (!attrs) return false;
+
+                    if (filterDataType !== "All" && (!attrs.hasOwnProperty(DATA_TYPE_FIELD) || attrs[DATA_TYPE_FIELD] !== filterDataType)) {
+                        return false;
+                    }
+                    if (filterYears.length > 0 && (!attrs.hasOwnProperty(YEAR_FIELD) || !filterYears.includes(String(attrs[YEAR_FIELD] ?? '')))) {
+                        return false;
+                    }
+                    if (filterPeriod !== "All" && (!attrs.hasOwnProperty(PERIOD_FIELD) || attrs[PERIOD_FIELD] !== filterPeriod)) {
+                        return false;
+                    }
+                    return true;
+                }
+
+                async function fetchRelatedDataForFeatures(features) {
+                    const relatedDataMap = {};
+                    if (!features || features.length === 0) return relatedDataMap;
+
+                    const featuresByLayer = features.reduce((acc, f) => {
+                        if (!f.layer || !f.layer.id || !f.layer.objectIdField) {
+                            console.warn("Feature missing layer information, skipping for related data fetch:", f.attributes);
+                            return acc;
+                        }
+                        const layerId = f.layer.id;
+                        const oid = f.attributes[f.layer.objectIdField];
+                        if (oid === null || oid === undefined) return acc;
+                        if (!acc[layerId]) {
+                            acc[layerId] = { layer: f.layer, objectIds: new Set() };
+                        }
+                        acc[layerId].objectIds.add(oid);
+                        return acc;
+                    }, {});
+
+                    const fetchPromises = Object.values(featuresByLayer).map(async ({ layer, objectIds }) => {
+                        if (!layer.relationships || layer.relationships.length === 0) return;
+                        const oids = Array.from(objectIds);
+                        if (oids.length === 0) return;
+
+                        const relPromises = layer.relationships.map(async rel => {
+                            const relQuery = new RelationshipQuery({
+                                relationshipId: rel.id,
+                                objectIds: oids,
+                                outFields: ["*"],
+                                returnGeometry: false,
+                            });
+                            try {
+                                const result = await layer.queryRelatedFeatures(relQuery);
+                                for (const parentOId in result) {
+                                    const relatedFeatures = result[parentOId]?.features ?? [];
+                                    if (relatedFeatures.length > 0) {
+                                        const numericParentOid = Number(parentOId);
+                                        if (!relatedDataMap[numericParentOid]) relatedDataMap[numericParentOid] = [];
+                                        relatedDataMap[numericParentOid].push(...relatedFeatures.map(feat => feat.attributes));
+                                    }
+                                }
+                            } catch (error) {
+                                console.warn(`Relationship query error (Rel ID: ${rel.id}, Layer: ${layer.title || layer.id}):`, error);
+                            }
+                        });
+                        await Promise.all(relPromises);
+                    });
+
+                    await Promise.all(fetchPromises);
+                    return relatedDataMap;
+                }
+
+                async function updateMapViewBasedOnFilters(isFilteringSelection, featuresToShow) {
+                    clearAllHighlights();
+
+                    const oidsToShowByLayer = featuresToShow.reduce((acc, f) => {
+                        if (f.layer && f.layer.id && f.layer.objectIdField) {
+                            const layerId = f.layer.id;
+                            const oid = f.attributes[f.layer.objectIdField];
+                            if (oid !== null && oid !== undefined) {
+                                if (!acc[layerId]) acc[layerId] = new Set();
+                                acc[layerId].add(oid);
+                            }
+                        }
+                        return acc;
+                    }, {});
+
+                    if (isFilteringSelection) {
+                        await clearAllLayerViewFilters();
+                        const hlPromises = Object.entries(oidsToShowByLayer).map(async ([layerId, oidsSet]) => {
+                            const layer = allLayers.find(l => l.id === layerId);
+                            if (!layer || oidsSet.size === 0) return;
+                            try {
+                                const lv = await view.whenLayerView(layer);
+                                if (lv) highlightHandles[layerId] = lv.highlight(Array.from(oidsSet));
+                            } catch (error) { console.warn(`Highlight error on layer ${layerId}:`, error); }
+                        });
+                        await Promise.all(hlPromises);
+                    } else {
+                        const filterPromises = allLayers.map(async (layer) => {
+                            try {
+                                const lv = await view.whenLayerView(layer);
+                                if (!lv) return;
+                                const layerOIDsSet = oidsToShowByLayer[layer.id];
+                                const objectIdsForFilter = layerOIDsSet && layerOIDsSet.size > 0 ? Array.from(layerOIDsSet) : [-1];
+                                lv.filter = new FeatureFilter({ objectIds: objectIdsForFilter });
+                            } catch (error) {
+                                console.warn(`LayerView filter error on layer ${layer.id}:`, error);
+                            }
+                        });
+                        await Promise.all(filterPromises);
+                    }
+                }
+
+                function clearAllHighlights() {
+                    Object.values(highlightHandles).forEach(handle => handle?.remove());
+                    highlightHandles = {};
+                }
+
+                async function clearAllLayerViewFilters() {
+                    const clearPromises = allLayers.map(async (layer) => {
+                        try {
+                            const lv = await view.whenLayerView(layer);
+                            if (lv) lv.filter = null;
+                        } catch (error) {
+                            console.warn(`Clear LayerView filter error on layer ${layer.id}:`, error);
+                        }
+                    });
+                    await Promise.all(clearPromises);
+                }
+
+                async function queryAllVisibleFeaturesAcrossLayers(layers) {
+                    let allFeatures = [];
+                    const queryPromises = layers.map(async (layer) => {
+                        if (!layer.visible || layer.type !== 'feature') return;
+                        const query = layer.createQuery();
+                        query.where = layer.definitionExpression || "1=1";
+                        query.outFields = ["*"];
+                        query.returnGeometry = true;
+                        try {
+                            const result = await layer.queryFeatures(query);
+                            result.features.forEach(f => f.layer = layer);
+                            allFeatures.push(...result.features);
+                        } catch (error) {
+                            console.warn(`Query error on layer ${layer.title || layer.id}:`, error);
+                        }
+                    });
+                    await Promise.all(queryPromises);
+                    return allFeatures;
+                }
+
+                function displayAttributes(features, relatedDataMap) {
+                    const attributeTable = document.getElementById(ATTRIBUTE_TABLE_ID);
+                    const thead = attributeTable?.querySelector("thead");
+                    const tbody = attributeTable?.querySelector("tbody");
+                    if (!attributeTable || !thead || !tbody) return;
+
+                    thead.innerHTML = "";
+                    tbody.innerHTML = "";
+                    currentTableHeaders = [];
+                    currentTableData = [];
+
+                    if (!features || features.length === 0) {
+                        tbody.innerHTML = `<tr class="no-features-row"><td colspan="1">No features match filters/selection.</td></tr>`;
+                        return;
+                    }
+
+                    const headersSet = new Set();
+                    const tableRowsData = [];
+                    const columnValues = {};
+
+                    features.forEach(f => {
+                        const oidField = f.layer?.objectIdField;
+                        if (!oidField) return;
+                        const oid = f.attributes[oidField];
+                        const related = relatedDataMap[oid] || [];
+
+                        const matchingRelated = related.filter(rec => doesRecordMatchFilters(rec, currentYears, currentPeriod, currentDataType));
+                        const mainMatches = doesRecordMatchFilters(f.attributes, currentYears, currentPeriod, currentDataType);
+                        const mainCanMatchFilters = (currentDataType === "All" || (f.attributes && f.attributes.hasOwnProperty(DATA_TYPE_FIELD))) &&
+                            (currentYears.length === 0 || (f.attributes && f.attributes.hasOwnProperty(YEAR_FIELD))) &&
+                            (currentPeriod === "All" || (f.attributes && f.attributes.hasOwnProperty(PERIOD_FIELD)));
+
+                        if (matchingRelated.length > 0) {
+                            matchingRelated.forEach(relAttrs => {
+                                const rowData = { ...f.attributes, ...relAttrs };
+                                tableRowsData.push(rowData);
+                                Object.keys(rowData).forEach(attr => {
+                                    headersSet.add(attr);
+                                    if (!columnValues[attr]) columnValues[attr] = new Set();
+                                    columnValues[attr].add(rowData[attr] ?? null);
+                                });
+                            });
+                        } else if (mainMatches && mainCanMatchFilters) {
+                            const rowData = { ...f.attributes };
+                            tableRowsData.push(rowData);
+                            Object.keys(rowData).forEach(attr => {
+                                headersSet.add(attr);
+                                if (!columnValues[attr]) columnValues[attr] = new Set();
+                                columnValues[attr].add(rowData[attr] ?? null);
+                            });
+                        }
+                    });
+
+                    if (tableRowsData.length === 0) {
+                        tbody.innerHTML = `<tr class="no-features-row"><td colspan="1">No data records meet the current filter criteria (Data Type, Year, Period).</td></tr>`;
+                        return;
+                    }
+
+                    const fieldsToExclude = [
+                        "OBJECTID", "Shape", "SHAPE_Length", "SHAPE_Area", "Intersection_IDs",
+                        "LocationID", "Intersection_ID", "Longitude", "Latitude",
+                        "PopupInfo", "Names", "Traffic_DataCollection_Date", "City", "State",
+                        "Intersection_Type", "Leg_Type", "OBJECTID_1", "ParentGlobalID", "GlobalID",
+                        "Shape__Area", "Shape__Length", "Major_Street", "Minor_Street", "PEAK_ID"
+                    ];
+
+                    let headersToDisplay = Array.from(headersSet).filter(attr => {
+                        if (fieldsToExclude.includes(attr)) return false;
+                        const vals = columnValues[attr];
+                        return vals && Array.from(vals).some(v => v !== null && v !== undefined && String(v).trim() !== '');
+                    });
+
+                    const preferredOrder = ["Name", MAJOR_STREETS_FIELD, MINOR_STREETS_FIELD, DATA_TYPE_FIELD, YEAR_FIELD, PERIOD_FIELD, "TurningMovement_Sum"].filter(Boolean);
+                    headersToDisplay.sort((a, b) => {
+                        const idxA = preferredOrder.indexOf(a);
+                        const idxB = preferredOrder.indexOf(b);
+                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                        if (idxA !== -1) return -1;
+                        if (idxB !== -1) return 1;
+                        return a.localeCompare(b);
+                    });
+
+                    // Group and sort directional movement columns according to user feedback
+                    const directionalOrder = [
+                        "EBL", "EBT", "EBR",
+                        "WBL", "WBT", "WBR",
+                        "NBL", "NBT", "NBR",
+                        "SBL", "SBT", "SBR",
+                        // Also include other potential directional totals in a logical order
+                        "EB", "WB", "NB", "SB",
+                        "E", "W", "N", "S"
+                    ];
+
+                    // Extract all directional columns that are present in the data
+                    const existingDirCols = headersToDisplay.filter(h => directionalOrder.includes(h));
+
+                    // Sort these extracted columns based on the predefined directionalOrder
+                    existingDirCols.sort((a, b) => {
+                        return directionalOrder.indexOf(a) - directionalOrder.indexOf(b);
+                    });
+
+                    // Remove the directional columns from the main list to re-insert them in the correct order
+                    headersToDisplay = headersToDisplay.filter(h => !directionalOrder.includes(h));
+
+                    // Determine the insertion point (e.g., right after 'Period')
+                    let insertIndex = headersToDisplay.indexOf(PERIOD_FIELD);
+                    // Insert after 'Period', or at the end if 'Period' is not found
+                    insertIndex = (insertIndex !== -1) ? insertIndex + 1 : headersToDisplay.length;
+
+                    headersToDisplay.splice(insertIndex, 0, ...existingDirCols);
+
+                    currentTableHeaders = headersToDisplay;
+                    currentTableData = tableRowsData;
+
+                    const noDataRow = tbody.querySelector('.no-features-row td');
+                    if (noDataRow) noDataRow.colSpan = headersToDisplay.length || 1;
+
+                    const headerRow = document.createElement("tr");
+                    headersToDisplay.forEach((headerText) => {
+                        const th = document.createElement('th');
+                        th.title = `Sort by ${headerText}`;
+                        th.textContent = headerText;
+                        const span = document.createElement('span');
+                        span.className = 'sort-indicator';
+                        span.textContent = ' ⇅';
+                        th.appendChild(span);
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+
+                    tableRowsData.forEach(rowData => {
+                        const row = document.createElement("tr");
+                        headersToDisplay.forEach(header => {
+                            const cell = document.createElement("td");
+                            let displayValue = rowData[header] ?? '';
+                            if (typeof displayValue === 'number' && !Number.isInteger(displayValue)) {
+                                displayValue = displayValue.toFixed(2);
+                            }
+                            cell.textContent = displayValue;
+                            row.appendChild(cell);
+                        });
+                        tbody.appendChild(row);
+                    });
                 }
 
                 function handleMapClick(event) {
                     view.hitTest(event).then(response => {
-                        const result = response.results.find(r => r.graphic && r.graphic.layer && r.graphic.layer.type === "feature");
+                        const result = response.results?.find(r =>
+                            r.graphic?.layer?.type === "feature" &&
+                            allLayers.some(opLayer => opLayer.id === r.graphic.layer.id)
+                        );
                         if (result) {
                             toggleFeatureSelection(result.graphic);
                         } else {
-                            // Empty space: unselect all
-                            selectedFeatures = [];
-                            applyFilters();
+                            if (selectedFeatures.length > 0) {
+                                selectedFeatures = [];
+                                applyFiltersAndDisplay();
+                            }
                         }
-                    });
+                    }).catch(error => console.error("HitTest error:", error));
                 }
 
                 function toggleFeatureSelection(feature) {
-                    const objectIdField = feature.layer.objectIdField;
-                    const objectId = feature.attributes[objectIdField];
-                    const existingIndex = selectedFeatures.findIndex(f => f.attributes[objectIdField] === objectId);
+                    if (!feature?.layer || !feature.layer.objectIdField) return;
+                    const oidField = feature.layer.objectIdField;
+                    const oid = feature.attributes[oidField];
+                    const layerId = feature.layer.id;
+                    const idx = selectedFeatures.findIndex(f => f.layer.id === layerId && f.attributes[oidField] === oid);
 
-                    if (existingIndex > -1) {
-                        selectedFeatures.splice(existingIndex, 1);
+                    if (idx > -1) {
+                        selectedFeatures.splice(idx, 1);
                     } else {
                         selectedFeatures.push(feature);
                     }
-
-                    applyFilters();
+                    applyFiltersAndDisplay();
                 }
 
-                function generateReport() {
-                    if (currentTableData.length === 0) {
-                        alert("No features to report.");
-                        return;
-                    }
+                function sortTable(table, colIndex, headerCell) {
+                    const tbody = table?.tBodies[0];
+                    if (!tbody || !headerCell || colIndex < 0 || colIndex >= headerCell.parentNode.children.length) return;
 
-                    const format = document.getElementById("reportFormat").value;
-                    if (format === "pdf") {
-                        generatePDFReport();
-                    } else {
-                        generateCSVReport();
+                    const rows = Array.from(tbody.rows);
+                    const newDirection = (headerCell.dataset.sort === 'asc') ? 'desc' : 'asc';
+                    headerCell.dataset.sort = newDirection;
+                    const isAsc = newDirection === 'asc';
+
+                    rows.sort((a, b) => {
+                        const aText = a.cells[colIndex]?.textContent.trim() || '';
+                        const bText = b.cells[colIndex]?.textContent.trim() || '';
+                        if (aText === '') return 1;
+                        if (bText === '') return -1;
+                        const aNum = Number(aText.replace(/,/g, ''));
+                        const bNum = Number(bText.replace(/,/g, ''));
+                        let comparisonResult;
+                        if (!isNaN(aNum) && !isNaN(bNum)) {
+                            comparisonResult = aNum - bNum;
+                        } else {
+                            comparisonResult = aText.localeCompare(bText, undefined, { sensitivity: 'base', numeric: true });
+                        }
+                        return isAsc ? comparisonResult : -comparisonResult;
+                    });
+
+                    rows.forEach(row => tbody.appendChild(row));
+                    updateSortIndicators(table, colIndex, newDirection);
+                }
+
+                function updateSortIndicators(table, sortedColIndex, direction) {
+                    const headers = table?.tHead?.rows[0]?.cells;
+                    if (!headers) return;
+                    for (let i = 0; i < headers.length; i++) {
+                        const indicator = headers[i].querySelector(".sort-indicator");
+                        if (indicator) {
+                            if (i === sortedColIndex) {
+                                indicator.textContent = direction === 'asc' ? ' ↑' : ' ↓';
+                            } else {
+                                indicator.textContent = ' ⇅';
+                                headers[i].dataset.sort = 'none';
+                            }
+                        }
                     }
                 }
 
                 function generatePDFReport() {
+                    if (!window.jspdf || (!window.jspdf.autoTable && (!window.jspdf.jsPDF?.API?.autoTable))) {
+                        alert("PDF generation library not loaded correctly. Please check console.");
+                        return;
+                    }
+
+                    if (currentTableData.length === 0 || currentTableHeaders.length === 0) {
+                        alert("No data in table to generate PDF report.");
+                        return;
+                    }
+
                     const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF({
-                        orientation: 'landscape'
-                    });
+                    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
 
                     doc.setFontSize(18);
-                    doc.text("Traffic Analytics Report", 14, 20);
+                    doc.text("Traffic Analytics Report", 40, 50);
+                    doc.setFontSize(10);
+                    doc.setTextColor(100);
+                    doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 65);
+                    doc.text(`Filters: Type=${currentDataType}, Year(s)=${currentYears.join(',') || 'All'}, Period=${currentPeriod}, Street=${currentStreet || 'None'}`, 40, 78);
 
-                    doc.setFontSize(12);
-                    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-
-                    const headers = [currentHeadersToDisplay];
-                    const body = currentTableData.map(row => currentHeadersToDisplay.map(h => row[h] || 'N/A'));
+                    const head = [currentTableHeaders];
+                    const body = currentTableData.map(row => currentTableHeaders.map(header => String(row[header] ?? '')));
 
                     doc.autoTable({
-                        head: headers,
+                        head: head,
                         body: body,
-                        startY: 40,
+                        startY: 90,
                         theme: 'striped',
-                        styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' },
-                        margin: 5,
-                        tableWidth: 'auto'
+                        styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+                        headStyles: { fillColor: [75, 143, 207], textColor: 255, fontStyle: 'bold' },
+                        margin: { top: 40, right: 40, bottom: 40, left: 40 },
+                        didDrawPage: (data) => doc.text('Page ' + doc.internal.getNumberOfPages(), data.settings.margin.left, doc.internal.pageSize.height - 15)
                     });
 
                     doc.save("traffic_analytics_report.pdf");
                 }
 
                 function generateCSVReport() {
-                    let csvContent = currentHeadersToDisplay.join(",") + "\n";
-                    currentTableData.forEach(rowData => {
-                        const row = currentHeadersToDisplay.map(h => {
-                            let val = rowData[h];
-                            if (val == null) val = 'N/A';
-                            val = String(val);
-                            const safeVal = val.replace(/"/g, '""');
-                            return `"${safeVal}"`;
-                        }).join(",");
-                        csvContent += row + "\n";
+                    if (currentTableData.length === 0 || currentTableHeaders.length === 0) {
+                        alert("No data in table to generate CSV report.");
+                        return;
+                    }
+                    const escapeCSV = (val) => {
+                        const str = String(val ?? '');
+                        return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
+                    };
+                    let csv = currentTableHeaders.map(escapeCSV).join(",") + "\n";
+                    currentTableData.forEach(row => {
+                        csv += currentTableHeaders.map(h => escapeCSV(row[h])).join(",") + "\n";
                     });
-
-                    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-                    const url = URL.createObjectURL(blob);
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
                     const link = document.createElement("a");
-                    link.href = url;
-                    link.setAttribute("download", "traffic_analytics_report.csv");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = "traffic_analytics_report.csv";
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
                 }
 
-                function waitForViewStable(view) {
-                    return new Promise(resolve => {
-                        if (!view.updating) {
-                            resolve();
-                            return;
-                        }
-                        const handle = view.watch("updating", (updating) => {
-                            if (!updating) {
-                                handle.remove();
-                                resolve();
-                            }
-                        });
-                    });
+                function generateReport() {
+                    const format = document.getElementById(REPORT_FORMAT_ID)?.value ?? 'pdf';
+                    if (format === "pdf") generatePDFReport();
+                    else if (format === "csv") generateCSVReport();
                 }
 
                 async function exportMapAsPDF() {
-                    // If selected features exist, try to get their combined extent
-                    let combinedExtent = null;
-                    for (const f of selectedFeatures) {
-                        if (f.geometry && f.geometry.extent) {
-                            if (!combinedExtent) {
-                                combinedExtent = f.geometry.extent.clone();
-                            } else {
-                                combinedExtent = combinedExtent.union(f.geometry.extent);
-                            }
+                    showLoadingSpinner();
+                    const currentVP = view.viewpoint.clone();
+                    try {
+                        let targetExtent = null;
+                        if (selectedFeatures.length > 0) {
+                            selectedFeatures.forEach(f => {
+                                const featExtent = f.geometry?.extent;
+                                if (featExtent) {
+                                    if (!targetExtent) targetExtent = featExtent.clone();
+                                    else targetExtent = targetExtent.union(featExtent);
+                                }
+                            });
+                            if (targetExtent) await view.goTo(targetExtent.expand(1.3));
                         }
+
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        const screenshot = await view.takeScreenshot({ width: 1600, height: 1000, format: 'png' });
+                        if (targetExtent) await view.goTo(currentVP);
+
+                        if (!window.jspdf) throw new Error("jsPDF library not found.");
+                        const { jsPDF } = window.jspdf;
+                        const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+                        const pageW = doc.internal.pageSize.getWidth();
+                        const pageH = doc.internal.pageSize.getHeight();
+                        const margin = 40;
+                        doc.setFontSize(18);
+                        doc.text("City of Walnut Creek - Traffic Map", margin, margin + 10);
+                        doc.setFontSize(10);
+                        doc.setTextColor(100);
+                        doc.text(`Exported: ${new Date().toLocaleString()}`, margin, margin + 25);
+                        const availW = pageW - 2 * margin;
+                        const availH = pageH - (margin + 40) - margin;
+                        const imgProps = doc.getImageProperties(screenshot.dataUrl);
+                        const imgRatio = imgProps.width / imgProps.height;
+                        let imgW = availW, imgH = imgW / imgRatio;
+                        if (imgH > availH) { imgH = availH; imgW = imgH * imgRatio; }
+                        doc.addImage(screenshot.dataUrl, "PNG", margin + (availW - imgW) / 2, margin + 40, imgW, imgH);
+                        doc.save("traffic_map_export.pdf");
+                    } catch (error) {
+                        console.error("Error during map export:", error);
+                        alert(`Failed to export map: ${error.message}`);
+                        await view.goTo(currentVP).catch(() => { });
+                    } finally {
+                        hideLoadingSpinner();
                     }
-
-                    if (combinedExtent) {
-                        await view.goTo(combinedExtent.expand(1.2));
-                    }
-
-                    await waitForViewStable(view);
-
-                    const screenshot = await view.takeScreenshot({ width: 1400, height: 990 });
-
-                    // Restore original viewpoint
-                    if (originalViewpoint) {
-                        await view.goTo(originalViewpoint);
-                    }
-
-                    const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF({
-                        orientation: 'landscape'
-                    });
-
-                    doc.setFontSize(18);
-                    doc.text("City of Walnut Creek - Traffic Map", 14, 10);
-
-                    doc.setFontSize(12);
-                    doc.text(`Exported on: ${new Date().toLocaleString()}`, 14, 18);
-
-                    // Legend
-                    doc.setFontSize(10);
-                    doc.text("Legend:", 14, 23);
-
-                    // Cyan highlight for selected features
-                    doc.setFillColor(0, 255, 255);
-                    doc.circle(16, 26, 2, 'F');
-                    doc.text("Selected feature(s)", 22, 28);
-
-                    // Brown symbol for intersections
-                    doc.setFillColor(150, 75, 0);
-                    doc.circle(16, 31, 2, 'F');
-                    doc.text("Intersection", 22, 33);
-
-                    // Add the screenshot image
-                    doc.addImage(screenshot.data, "PNG", 9, 40, 224, 158.4);
-
-                    doc.save("traffic_map.pdf");
                 }
+
+                function showLoadingSpinner() {
+                    const spinner = document.getElementById(LOADING_SPINNER_ID);
+                    if (spinner) spinner.style.display = 'block';
+                }
+
+                function hideLoadingSpinner() {
+                    const spinner = document.getElementById(LOADING_SPINNER_ID);
+                    if (spinner) spinner.style.display = 'none';
+                }
+
+                // ===========================================================
+                // INITIALIZATION
+                // ===========================================================
+                async function init() {
+                    showLoadingSpinner();
+                    try {
+                        map = new WebMap({ portalItem: { id: "e22b69d781254a3bbbf5d2310ba75315" } });
+                        view = new MapView({
+                            container: VIEW_DIV_ID,
+                            map: map,
+                            highlightOptions: { color: [0, 255, 255, 1], haloOpacity: 0.9, fillOpacity: 0.3 }
+                        });
+                        await view.when();
+                        await map.load();
+
+                        if (map.loadStatus === 'failed') {
+                            throw new Error(map.loadError?.message || 'Unknown WebMap loading error');
+                        }
+
+                        originalViewpoint = view.viewpoint.clone();
+                        addUiElements();
+                        allLayers = map.layers.filter(layer => layer.type === "feature").toArray();
+
+                        if (allLayers.length === 0) {
+                            throw new Error("No FeatureLayers found in the Web Map. Application cannot function.");
+                        }
+
+                        await view.when(() => Promise.all(allLayers.map(layer => view.whenLayerView(layer))));
+
+                        // Use the first layer that has relationships to populate years
+                        const layerForYears = allLayers.find(l => l.relationships?.length > 0) || allLayers[0];
+
+                        await Promise.all([
+                            populateStreetList(allLayers),
+                            populateYearsFromRelatedData(layerForYears)
+                        ]);
+
+                        createFilterElements();
+                        initializeStreetAutocomplete();
+                        addEventListeners();
+                        await applyFiltersAndDisplay();
+
+                    } catch (error) {
+                        console.error("Initialization failed:", error);
+                        alert(`Application failed to initialize: ${error.message}. Please check console.`);
+                    } finally {
+                        hideLoadingSpinner();
+                    }
+                }
+
+                init();
+
             });
         });
     </script>
