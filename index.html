@@ -7,12 +7,22 @@
     <title>Traffic Analytics Map</title>
     <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
 
+    <script>
+        window.PEAK_APP_CONFIG = {
+            portalUrl: "https://calbyeon.github.io/",
+            oauthAppId: "mz86rbSUbYtreYS9",
+            oauthRedirectUri: "https://calbyeon.github.io/",
+            oauthClientSecret: "a3a12cf73a55476c975358572dbb1c8f"
+        };
+    </script>
     <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.21/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <script>
         var dojoConfig = {
@@ -433,6 +443,83 @@
             border-color: #c0c0c0;
             box-shadow: none;
         }
+
+        #adminPanel {
+            flex: 0 0 auto;
+            background: #ffffff;
+            border-top: 1px solid #dcdcdc;
+            padding: 20px;
+            display: none;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        #adminPanel.active {
+            display: flex;
+        }
+
+        .admin-card {
+            flex: 1 1 320px;
+            border: 1px solid #d4d4d4;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+            background: #fafafa;
+        }
+
+        .admin-card h3 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #2f4f6f;
+        }
+
+        .admin-card p {
+            font-size: 13px;
+            color: #4d4d4d;
+            line-height: 1.5;
+        }
+
+        .admin-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .admin-actions button,
+        .admin-actions a {
+            align-self: flex-start;
+            padding: 6px 12px;
+            font-size: 13px;
+            border-radius: 4px;
+            border: 1px solid #4b8fcf;
+            background: #4b8fcf;
+            color: #ffffff;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s, color 0.2s, border 0.2s;
+        }
+
+        .admin-actions button.secondary,
+        .admin-actions a.secondary {
+            background: transparent;
+            color: #4b8fcf;
+        }
+
+        .admin-actions button:hover,
+        .admin-actions a:hover {
+            background: #3f7bb4;
+            color: #ffffff;
+        }
+
+        .admin-actions button.secondary:hover,
+        .admin-actions a.secondary:hover {
+            background: rgba(75, 143, 207, 0.12);
+        }
+
+        .admin-hidden {
+            display: none !important;
+        }
     </style>
 </head>
 
@@ -467,6 +554,41 @@
                     <thead></thead> <!-- Headers added dynamically -->
                     <tbody></tbody> <!-- Data added dynamically -->
                 </table>
+            </div>
+        </div>
+
+        <div id="adminPanel" aria-live="polite">
+            <div class="admin-card" id="adminWelcomeCard">
+                <h3>Data Management Access</h3>
+                <p id="adminStatusMessage">Sign in with your ArcGIS Online credentials to manage Average Daily Traffic (ADT) counts and intersection traffic tables.</p>
+                <div class="admin-actions">
+                    <button type="button" id="adminSignInBtn">Sign in</button>
+                    <button type="button" id="adminSignOutBtn" class="secondary admin-hidden">Sign out</button>
+                    <a id="adtTemplateLink" class="secondary admin-hidden" download="ADT_Template.csv" href="#">Download ADT CSV template</a>
+                    <a id="trafficTemplateLink" class="secondary admin-hidden" download="Traffic_Template.csv" href="#">Download Traffic CSV template</a>
+                </div>
+            </div>
+
+            <div class="admin-card admin-hidden" id="adtImportCard">
+                <h3>Upload ADT Counts</h3>
+                <p>Upload a CSV containing new or updated Average Daily Traffic measurements. Records must include <code>LineGUID</code>, <code>ADT</code>, <code>CountDate</code>, <code>Year</code>, and <code>join_key</code>.</p>
+                <div class="admin-actions">
+                    <input type="file" id="adtFileInput" accept=".csv,.xls,.xlsx" />
+                    <button type="button" id="adtUploadBtn">Upload ADT CSV</button>
+                    <button type="button" id="adtManualEntryBtn" class="secondary">Add single ADT record</button>
+                </div>
+                <div id="adtUploadFeedback" role="status"></div>
+            </div>
+
+            <div class="admin-card admin-hidden" id="trafficImportCard">
+                <h3>Traffic Count Tables</h3>
+                <p>Match uploads to an existing intersection using <code>Intersection_ID</code>. This tool will create related table entries for the selected intersection.</p>
+                <div class="admin-actions">
+                    <input type="file" id="trafficFileInput" accept=".csv,.xls,.xlsx" />
+                    <button type="button" id="trafficUploadBtn">Upload Traffic CSV</button>
+                    <button type="button" id="trafficManualEntryBtn" class="secondary">Record counts manually</button>
+                </div>
+                <div id="trafficUploadFeedback" role="status"></div>
             </div>
         </div>
 
@@ -530,18 +652,41 @@
                 { name: "join_key", alias: "join_key" }
             ];
             const MAX_ADT_REL_QUERY_BATCH = 500;
+            const ADMIN_PANEL_ID = "adminPanel";
+            const ADMIN_SIGN_IN_BTN_ID = "adminSignInBtn";
+            const ADMIN_SIGN_OUT_BTN_ID = "adminSignOutBtn";
+            const ADMIN_STATUS_MESSAGE_ID = "adminStatusMessage";
+            const ADT_TEMPLATE_LINK_ID = "adtTemplateLink";
+            const TRAFFIC_TEMPLATE_LINK_ID = "trafficTemplateLink";
+            const ADT_IMPORT_CARD_ID = "adtImportCard";
+            const TRAFFIC_IMPORT_CARD_ID = "trafficImportCard";
+            const ADT_FILE_INPUT_ID = "adtFileInput";
+            const ADT_UPLOAD_BTN_ID = "adtUploadBtn";
+            const ADT_MANUAL_ENTRY_BTN_ID = "adtManualEntryBtn";
+            const ADT_UPLOAD_FEEDBACK_ID = "adtUploadFeedback";
+            const TRAFFIC_FILE_INPUT_ID = "trafficFileInput";
+            const TRAFFIC_UPLOAD_BTN_ID = "trafficUploadBtn";
+            const TRAFFIC_MANUAL_ENTRY_BTN_ID = "trafficManualEntryBtn";
+            const TRAFFIC_UPLOAD_FEEDBACK_ID = "trafficUploadFeedback";
+            const ADT_REFERENCE_LAYER_TITLE = "Unique PEAK Traffic Count Intersections";
+            const ADT_EDITABLE_PORTAL_ITEM_ID = "f5c54f8a112149d0bce715a4ded24f02";
+            const TRAFFIC_EDITABLE_PORTAL_ITEM_ID = "ca9fcb119fc54c21a0d3dade0d4915db";
+            const APP_CONFIG = window.PEAK_APP_CONFIG || {};
+            const PORTAL_URL = APP_CONFIG.portalUrl || "https://www.arcgis.com";
+            const OAUTH_APP_ID = APP_CONFIG.oauthAppId || "REPLACE_WITH_YOUR_APP_ID";
+            const OAUTH_REDIRECT_URI = APP_CONFIG.oauthRedirectUri || (window.location.origin + window.location.pathname);
 
             // --- State Variables ---
             let map, view;
-let allLayers = []; // Will hold FeatureLayers from the WebMap
-let highlightHandles = {};
-let allYears = new Set();
-let streetList = [];
-let currentDataType = "All"; // Initialize with a simple default
-let currentYears = [];       // Initialize as an empty array
-let currentPeriod = "All";   // Initialize with a simple default
-let currentStreet = "";      // Initialize with a simple default
-let selectedFeatures = [];
+            let allLayers = []; // Will hold FeatureLayers from the WebMap
+            let highlightHandles = {};
+            let allYears = new Set();
+            let streetList = [];
+            let currentDataType = "All"; // Initialize with a simple default
+            let currentYears = [];       // Initialize as an empty array
+            let currentPeriod = "All";   // Initialize with a simple default
+            let currentStreet = "";      // Initialize with a simple default
+            let selectedFeatures = [];
             let filteredAndVisibleFeatures = [];
             let relatedDataCache = {};
             let currentTableHeaders = [];
@@ -555,7 +700,28 @@ let selectedFeatures = [];
             let adtSelectedOids = new Set();
             let adtAllParentOids = null;
             let adtFieldInfos = null;
-            const ADT_REFERENCE_LAYER_TITLE = "Unique PEAK Traffic Count Intersections";
+            let filterControlsElement = null;
+            let adminCredential = null;
+            let adminUser = null;
+            let isAdminMode = false;
+            let adminResourcesReady = false;
+            let adminUi = null;
+            let registeredOAuthInfo = null;
+            let adminTemplateUrls = { adt: null, traffic: null };
+            let adtEditableLayer = null;
+            let adtEditableRelationshipInfo = null;
+            let adtEditableTable = null;
+            let adtEditableForeignKeyField = null;
+            let adtParentLookupByGuid = new Map();
+            let adtParentLookupByJoinKey = new Map();
+            let trafficEditableLayer = null;
+            let trafficEditableRelationships = [];
+            let trafficRelatedTables = [];
+            let trafficEditableForeignKeyField = null;
+            let trafficParentLookupById = new Map();
+            let trafficParentLookupByGuid = new Map();
+            let trafficPrimaryKeyField = null;
+            let trafficTableForCounts = null;
 
             // --- ArcGIS Modules ---
             require([
@@ -568,10 +734,12 @@ let selectedFeatures = [];
                 "esri/layers/support/FeatureFilter",
                 "esri/geometry/Extent",
                 "esri/core/reactiveUtils",
-                "esri/widgets/LayerList"
+                "esri/widgets/LayerList",
+                "esri/identity/IdentityManager",
+                "esri/identity/OAuthInfo"
             ], function (
                 WebMap, MapView, FeatureLayer, Graphic, Query, RelationshipQuery, FeatureFilter, Extent,
-                reactiveUtils, LayerList
+                reactiveUtils, LayerList, IdentityManager, OAuthInfo
             ) {
 
                 // ===========================================================
@@ -953,6 +1121,1601 @@ let selectedFeatures = [];
                             resetFiltersToDefaults();
                         });
                     }
+                }
+
+                // ===========================================================
+                // ADMIN PANEL & AUTHENTICATION
+                // ===========================================================
+                function getAdminUi() {
+                    if (adminUi) {
+                        return adminUi;
+                    }
+                    adminUi = {
+                        panel: document.getElementById(ADMIN_PANEL_ID),
+                        statusMessage: document.getElementById(ADMIN_STATUS_MESSAGE_ID),
+                        signInBtn: document.getElementById(ADMIN_SIGN_IN_BTN_ID),
+                        signOutBtn: document.getElementById(ADMIN_SIGN_OUT_BTN_ID),
+                        adtTemplateLink: document.getElementById(ADT_TEMPLATE_LINK_ID),
+                        trafficTemplateLink: document.getElementById(TRAFFIC_TEMPLATE_LINK_ID),
+                        adtCard: document.getElementById(ADT_IMPORT_CARD_ID),
+                        trafficCard: document.getElementById(TRAFFIC_IMPORT_CARD_ID),
+                        adtUploadBtn: document.getElementById(ADT_UPLOAD_BTN_ID),
+                        adtManualBtn: document.getElementById(ADT_MANUAL_ENTRY_BTN_ID),
+                        adtFileInput: document.getElementById(ADT_FILE_INPUT_ID),
+                        adtFeedback: document.getElementById(ADT_UPLOAD_FEEDBACK_ID),
+                        trafficUploadBtn: document.getElementById(TRAFFIC_UPLOAD_BTN_ID),
+                        trafficManualBtn: document.getElementById(TRAFFIC_MANUAL_ENTRY_BTN_ID),
+                        trafficFileInput: document.getElementById(TRAFFIC_FILE_INPUT_ID),
+                        trafficFeedback: document.getElementById(TRAFFIC_UPLOAD_FEEDBACK_ID)
+                    };
+                    return adminUi;
+                }
+
+                function isOAuthConfigured() {
+                    return typeof OAUTH_APP_ID === "string" &&
+                        OAUTH_APP_ID &&
+                        OAUTH_APP_ID !== "REPLACE_WITH_YOUR_APP_ID";
+                }
+
+                function setAdminStatus(message, tone) {
+                    const ui = getAdminUi();
+                    if (!ui.statusMessage) {
+                        return;
+                    }
+                    ui.statusMessage.textContent = message;
+                    if (tone) {
+                        ui.statusMessage.dataset.statusTone = tone;
+                    } else if (ui.statusMessage.dataset.statusTone) {
+                        delete ui.statusMessage.dataset.statusTone;
+                    }
+                }
+
+                function setFeedbackMessage(element, message, tone) {
+                    if (!element) {
+                        return;
+                    }
+                    element.textContent = message;
+                    if (tone) {
+                        element.dataset.statusTone = tone;
+                    } else if (element.dataset.statusTone) {
+                        delete element.dataset.statusTone;
+                    }
+                }
+
+                function toggleElementHidden(element, hidden) {
+                    if (!element) {
+                        return;
+                    }
+                    element.classList.toggle("admin-hidden", !!hidden);
+                }
+
+                function updateAdminUiState() {
+                    const ui = getAdminUi();
+                    if (!ui.panel) {
+                        return;
+                    }
+
+                    ui.panel.classList.add("active");
+
+                    const signedIn = !!adminCredential;
+                    const resourcesReady = signedIn && adminResourcesReady;
+
+                    if (ui.signInBtn) {
+                        ui.signInBtn.disabled = !isOAuthConfigured() || signedIn;
+                        toggleElementHidden(ui.signInBtn, signedIn);
+                    }
+                    if (ui.signOutBtn) {
+                        ui.signOutBtn.disabled = !signedIn;
+                        toggleElementHidden(ui.signOutBtn, !signedIn);
+                    }
+
+                    toggleElementHidden(ui.adtCard, !signedIn);
+                    toggleElementHidden(ui.trafficCard, !signedIn);
+                    toggleElementHidden(ui.adtTemplateLink, !resourcesReady);
+                    toggleElementHidden(ui.trafficTemplateLink, !resourcesReady);
+
+                    if (ui.adtUploadBtn) ui.adtUploadBtn.disabled = !resourcesReady;
+                    if (ui.adtFileInput) ui.adtFileInput.disabled = !resourcesReady;
+                    if (ui.adtManualBtn) ui.adtManualBtn.disabled = !resourcesReady;
+
+                    if (ui.trafficUploadBtn) ui.trafficUploadBtn.disabled = !resourcesReady;
+                    if (ui.trafficFileInput) ui.trafficFileInput.disabled = !resourcesReady;
+                    if (ui.trafficManualBtn) ui.trafficManualBtn.disabled = !resourcesReady;
+                }
+
+                function handleAdminSignOut() {
+                    IdentityManager.destroyCredentials();
+                    adminCredential = null;
+                    adminUser = null;
+                    isAdminMode = false;
+                    adminResourcesReady = false;
+                    adtEditableLayer = null;
+                    adtEditableRelationshipInfo = null;
+                    adtEditableTable = null;
+                    adtEditableForeignKeyField = null;
+                    adtParentLookupByGuid.clear();
+                    adtParentLookupByJoinKey.clear();
+                    trafficEditableLayer = null;
+                    trafficEditableRelationships = [];
+                    trafficRelatedTables = [];
+                    trafficTableForCounts = null;
+                    trafficEditableForeignKeyField = null;
+                    trafficPrimaryKeyField = null;
+                    trafficParentLookupById.clear();
+                    trafficParentLookupByGuid.clear();
+                    setAdminStatus("Signed out. Sign in to upload data.");
+                    updateAdminUiState();
+                    const ui = getAdminUi();
+                    if (ui.adtFeedback) ui.adtFeedback.textContent = "";
+                    if (ui.trafficFeedback) ui.trafficFeedback.textContent = "";
+                    if (ui.adtTemplateLink) ui.adtTemplateLink.removeAttribute("href");
+                    if (ui.trafficTemplateLink) ui.trafficTemplateLink.removeAttribute("href");
+                    if (adminTemplateUrls.adt) {
+                        try { URL.revokeObjectURL(adminTemplateUrls.adt); } catch (error) { console.warn("Failed to revoke ADT template URL:", error); }
+                        adminTemplateUrls.adt = null;
+                    }
+                    if (adminTemplateUrls.traffic) {
+                        try { URL.revokeObjectURL(adminTemplateUrls.traffic); } catch (error) { console.warn("Failed to revoke traffic template URL:", error); }
+                        adminTemplateUrls.traffic = null;
+                    }
+                }
+
+                async function handleAdminSignIn(oauthInfo) {
+                    if (!oauthInfo || !isOAuthConfigured()) {
+                        setAdminStatus("ArcGIS OAuth is not configured. Update OAUTH_APP_ID before enabling uploads.", "error");
+                        return;
+                    }
+                    const ui = getAdminUi();
+                    if (ui.signInBtn) ui.signInBtn.disabled = true;
+                    setAdminStatus("Signing in...", "info");
+                    try {
+                        const credential = await IdentityManager.getCredential(oauthInfo.portalUrl + "/sharing");
+                        await applySignedInCredential(credential);
+                    } catch (error) {
+                        if (error && error.message && error.message.indexOf("User canceled") !== -1) {
+                            setAdminStatus("Sign-in was cancelled.", "warning");
+                        } else {
+                            console.error("ArcGIS sign-in failed:", error);
+                            setAdminStatus(`Sign-in failed: ${error.message || error}`, "error");
+                        }
+                    } finally {
+                        if (ui.signInBtn) ui.signInBtn.disabled = !!adminCredential;
+                    }
+                }
+
+                async function applySignedInCredential(credential) {
+                    if (!credential) {
+                        return;
+                    }
+                    adminCredential = credential;
+                    adminUser = credential.userId || null;
+                    isAdminMode = true;
+                    adminResourcesReady = false;
+                    updateAdminUiState();
+                    const displayUser = adminUser || "authenticated user";
+                    setAdminStatus(`Signed in as ${displayUser}. Loading editable datasets...`);
+                    try {
+                        await loadEditableResources();
+                        adminResourcesReady = true;
+                        updateAdminUiState();
+                        refreshAdminTemplateDownloads();
+                        setAdminStatus(`Signed in as ${displayUser}. Upload tools are ready.`);
+                    } catch (error) {
+                        console.error("Failed to load editable resources:", error);
+                        setAdminStatus(`Signed in as ${displayUser}, but failed to load editable services: ${error.message || error}.`, "error");
+                    }
+                }
+
+                function findRelatedForeignKeyField(parentLayer, childLayer, relationshipInfo) {
+                    if (!parentLayer || !childLayer || !relationshipInfo) {
+                        return null;
+                    }
+                    const relatedTableId = parentLayer.layerId;
+                    const relationshipFromChild = (childLayer.relationships || []).find(rel => rel.relatedTableId === relatedTableId);
+                    if (relationshipFromChild && relationshipFromChild.keyField) {
+                        return relationshipFromChild.keyField;
+                    }
+                    const candidates = ["LineGUID", "lineguid", "ParentGUID", "ParentGlobalID", "ParentGuid", "ParentID", "Intersection_ID", "intersection_id", "GlobalID"];
+                    const childFieldNames = childLayer.fields ? childLayer.fields.map(f => (f.name || "").toLowerCase()) : [];
+                    const match = candidates.find(name => childFieldNames.includes(name.toLowerCase()));
+                    return match || null;
+                }
+
+                function findFieldNameCaseInsensitive(layer, targetName) {
+                    if (!layer || !layer.fields || !targetName) {
+                        return null;
+                    }
+                    const lower = targetName.toLowerCase();
+                    const field = layer.fields.find(f => (f.name || "").toLowerCase() === lower);
+                    return field ? field.name : null;
+                }
+
+                async function loadEditableResources() {
+                    if (adminResourcesReady) {
+                        return;
+                    }
+                    if (!adminCredential) {
+                        throw new Error("No credential available for loading editable resources.");
+                    }
+
+                    const loadTasks = [];
+
+                    const loadAdtTask = (async () => {
+                        if (!ADT_EDITABLE_PORTAL_ITEM_ID) {
+                            throw new Error("ADT editable portal item ID is not configured.");
+                        }
+                        adtEditableLayer = await FeatureLayer.fromPortalItem({
+                            portalItem: { id: ADT_EDITABLE_PORTAL_ITEM_ID },
+                            outFields: ["*"]
+                        });
+                        await adtEditableLayer.load();
+                        adtEditableRelationshipInfo = (adtEditableLayer.relationships || []).find(rel => {
+                            const relName = (rel.name || "").toLowerCase();
+                            return relName.includes("traffic") || relName.includes("adt") || relName.includes("count") || rel.role === "esriRelRoleOrigin";
+                        }) || (adtEditableLayer.relationships && adtEditableLayer.relationships[0]);
+                        if (!adtEditableRelationshipInfo) {
+                            throw new Error("ADT editable layer does not expose a related table for counts.");
+                        }
+                        const baseUrl = adtEditableLayer.url.replace(/\/\d+$/, "");
+                        adtEditableTable = new FeatureLayer({
+                            url: `${baseUrl}/${adtEditableRelationshipInfo.relatedTableId}`,
+                            outFields: ["*"]
+                        });
+                    await adtEditableTable.load();
+                    adtEditableForeignKeyField = findRelatedForeignKeyField(adtEditableLayer, adtEditableTable, adtEditableRelationshipInfo);
+                    if (!adtEditableForeignKeyField) {
+                        console.warn("Unable to determine ADT table foreign key field automatically.");
+                    }
+                    await rebuildAdtParentLookups();
+                })();
+
+                    loadTasks.push(loadAdtTask);
+
+                    const loadTrafficTask = (async () => {
+                        if (!TRAFFIC_EDITABLE_PORTAL_ITEM_ID) {
+                            throw new Error("Traffic editable portal item ID is not configured.");
+                        }
+                    trafficEditableLayer = await FeatureLayer.fromPortalItem({
+                        portalItem: { id: TRAFFIC_EDITABLE_PORTAL_ITEM_ID },
+                        outFields: ["*"]
+                    });
+                    await trafficEditableLayer.load();
+                    trafficEditableRelationships = trafficEditableLayer.relationships ? trafficEditableLayer.relationships.slice() : [];
+                    trafficPrimaryKeyField = (trafficEditableRelationships[0] && trafficEditableRelationships[0].keyField) || trafficEditableLayer.globalIdField;
+                    trafficRelatedTables = [];
+                    trafficTableForCounts = null;
+                    if (trafficEditableRelationships.length > 0) {
+                        const baseUrl = trafficEditableLayer.url.replace(/\/\d+$/, "");
+                        for (const rel of trafficEditableRelationships) {
+                                try {
+                                    const tableLayer = new FeatureLayer({
+                                        url: `${baseUrl}/${rel.relatedTableId}`,
+                                        outFields: ["*"]
+                                    });
+                                    await tableLayer.load();
+                                    trafficRelatedTables.push({ relationship: rel, layer: tableLayer });
+                                } catch (innerError) {
+                                    console.warn(`Failed to load related table ${rel.relatedTableId} for traffic layer:`, innerError);
+                                }
+                            }
+                            const preferredTable = trafficRelatedTables.find(entry => {
+                                const name = (entry.relationship?.name || "").toLowerCase();
+                                return name.includes("traffic") || name.includes("count");
+                            }) || trafficRelatedTables[0];
+                            if (preferredTable) {
+                            trafficTableForCounts = preferredTable.layer;
+                            trafficEditableForeignKeyField = findRelatedForeignKeyField(trafficEditableLayer, trafficTableForCounts, preferredTable.relationship);
+                        }
+                    }
+                    if (!trafficTableForCounts) {
+                        console.warn("No related traffic count table could be determined from editable service.");
+                    }
+                    await rebuildTrafficParentLookups();
+                })();
+
+                    loadTasks.push(loadTrafficTask);
+
+                    await Promise.all(loadTasks);
+                }
+
+                async function rebuildAdtParentLookups() {
+                    adtParentLookupByGuid.clear();
+                    adtParentLookupByJoinKey.clear();
+                    if (!adtEditableLayer) {
+                        return;
+                    }
+                    await adtEditableLayer.load();
+                    const objectIdField = adtEditableLayer.objectIdField;
+                    const parentKeyField = (adtEditableRelationshipInfo && adtEditableRelationshipInfo.keyField) || adtEditableLayer.globalIdField;
+                    if (!parentKeyField) {
+                        console.warn("ADT editable layer is missing a key field definition; parent lookup cannot be built.");
+                        return;
+                    }
+                    const joinKeyField = findFieldNameCaseInsensitive(adtEditableLayer, "join_key");
+                    const lineGuidField = findFieldNameCaseInsensitive(adtEditableLayer, "LineGUID");
+                    const query = adtEditableLayer.createQuery();
+                    query.where = "1=1";
+                    query.outFields = Array.from(new Set([objectIdField, parentKeyField, joinKeyField, lineGuidField].filter(Boolean)));
+                    query.returnGeometry = false;
+                    query.returnExceededLimitFeatures = true;
+                    const result = await adtEditableLayer.queryFeatures(query);
+                    const features = result && result.features ? result.features : [];
+                    if (result && result.exceededTransferLimit) {
+                        console.warn("ADT parent lookup query exceeded transfer limit; some features may be missing from the lookup.");
+                    }
+                    features.forEach(feature => {
+                        const attrs = feature.attributes || {};
+                        const objectId = attrs[objectIdField];
+                        const keyValueRaw = attrs[parentKeyField];
+                        const keyValueNormalized = normalizeGuid(keyValueRaw);
+                        if (!keyValueNormalized) {
+                            return;
+                        }
+                        const joinKeyRaw = joinKeyField ? attrs[joinKeyField] : null;
+                        const joinKeyNormalized = joinKeyRaw ? normalizeJoinKey(joinKeyRaw) : null;
+                        const lineGuidRaw = lineGuidField ? attrs[lineGuidField] : null;
+                        const lineGuidNormalized = lineGuidRaw ? normalizeGuid(lineGuidRaw) : null;
+                        const entry = {
+                            objectId,
+                            keyFieldName: parentKeyField,
+                            keyValueRaw,
+                            keyValueNormalized,
+                            joinKeyRaw,
+                            joinKeyNormalized,
+                            lineGuidRaw,
+                            lineGuidNormalized,
+                            attributes: attrs
+                        };
+                        adtParentLookupByGuid.set(keyValueNormalized, entry);
+                        if (lineGuidNormalized) {
+                            adtParentLookupByGuid.set(lineGuidNormalized, entry);
+                        }
+                        if (joinKeyNormalized) {
+                            adtParentLookupByJoinKey.set(joinKeyNormalized, entry);
+                        }
+                    });
+                }
+
+                async function rebuildTrafficParentLookups() {
+                    trafficParentLookupById.clear();
+                    trafficParentLookupByGuid.clear();
+                    if (!trafficEditableLayer) {
+                        return;
+                    }
+                    await trafficEditableLayer.load();
+                    const objectIdField = trafficEditableLayer.objectIdField;
+                    const primaryKeyField = trafficPrimaryKeyField || trafficEditableLayer.globalIdField;
+                    if (!primaryKeyField) {
+                        console.warn("Traffic editable layer is missing a key field definition; parent lookup cannot be built.");
+                        return;
+                    }
+                    const intersectionIdField = findFieldNameCaseInsensitive(trafficEditableLayer, "Intersection_ID") ||
+                        findFieldNameCaseInsensitive(trafficEditableLayer, "IntersectionID");
+                    const keyFieldInfo = trafficEditableLayer.fields.find(f => f.name === primaryKeyField);
+                    const keyFieldType = (keyFieldInfo && keyFieldInfo.type) ? keyFieldInfo.type.toLowerCase() : "";
+                    const isGuidKey = keyFieldType.includes("guid") || keyFieldType.includes("globalid");
+                    const query = trafficEditableLayer.createQuery();
+                    query.where = "1=1";
+                    query.outFields = Array.from(new Set([objectIdField, primaryKeyField, intersectionIdField].filter(Boolean)));
+                    query.returnGeometry = false;
+                    query.returnExceededLimitFeatures = true;
+                    const result = await trafficEditableLayer.queryFeatures(query);
+                    const features = result && result.features ? result.features : [];
+                    if (result && result.exceededTransferLimit) {
+                        console.warn("Traffic parent lookup query exceeded transfer limit; some features may be missing from the lookup.");
+                    }
+                    features.forEach(feature => {
+                        const attrs = feature.attributes || {};
+                        const objectId = attrs[objectIdField];
+                        const primaryKeyRaw = attrs[primaryKeyField];
+                        const primaryKeyNormalized = isGuidKey
+                            ? normalizeGuid(primaryKeyRaw)
+                            : (primaryKeyRaw !== null && primaryKeyRaw !== undefined
+                                ? String(primaryKeyRaw).trim().toUpperCase()
+                                : null);
+                        const intersectionIdRaw = intersectionIdField ? attrs[intersectionIdField] : null;
+                        const intersectionIdNormalized = intersectionIdRaw ? normalizeJoinKey(intersectionIdRaw) : null;
+                        if (!primaryKeyRaw && !intersectionIdNormalized) {
+                            return;
+                        }
+                        const entry = {
+                            objectId,
+                            primaryKeyField,
+                            primaryKeyRaw,
+                            primaryKeyNormalized,
+                            intersectionIdRaw,
+                            intersectionIdNormalized,
+                            isGuidKey,
+                            attributes: attrs
+                        };
+                        if (isGuidKey && primaryKeyNormalized) {
+                            trafficParentLookupByGuid.set(primaryKeyNormalized, entry);
+                        }
+                        if (!isGuidKey && primaryKeyNormalized) {
+                            trafficParentLookupById.set(primaryKeyNormalized, entry);
+                        }
+                        if (intersectionIdNormalized) {
+                            trafficParentLookupById.set(intersectionIdNormalized, entry);
+                        }
+                    });
+                }
+
+                function normalizeGuid(value) {
+                    if (value === null || value === undefined) {
+                        return null;
+                    }
+                    const stringValue = String(value).trim();
+                    if (!stringValue) {
+                        return null;
+                    }
+                    return stringValue.replace(/[{}]/g, "").toUpperCase();
+                }
+
+                function normalizeJoinKey(value) {
+                    if (value === null || value === undefined) {
+                        return null;
+                    }
+                    const stringValue = String(value).trim();
+                    return stringValue ? stringValue.toUpperCase() : null;
+                }
+
+                function addRowError(errorList, rowIndex, message) {
+                    errorList.push({ row: rowIndex, message });
+                }
+
+                function formatRowErrorMessages(rowErrors, limit) {
+                    if (!Array.isArray(rowErrors) || rowErrors.length === 0) {
+                        return "";
+                    }
+                    const max = Number.isInteger(limit) && limit > 0 ? limit : 5;
+                    const slices = rowErrors.slice(0, max).map(err => {
+                        const rowLabel = Number.isFinite(err.row) ? `Row ${err.row}` : "Row";
+                        return `${rowLabel}: ${err.message}`;
+                    });
+                    if (rowErrors.length > max) {
+                        slices.push(`…and ${rowErrors.length - max} more issue(s).`);
+                    }
+                    return slices.join(" ");
+                }
+
+                function sampleValueForField(field) {
+                    if (!field) {
+                        return "";
+                    }
+                    switch (field.type) {
+                        case "integer":
+                        case "small-integer":
+                        case "long":
+                        case "double":
+                        case "single":
+                        case "esriFieldTypeInteger":
+                        case "esriFieldTypeSmallInteger":
+                        case "esriFieldTypeDouble":
+                        case "esriFieldTypeSingle":
+                            return "0";
+                        case "date":
+                        case "esriFieldTypeDate":
+                            return "2024-01-15";
+                        case "guid":
+                        case "esriFieldTypeGUID":
+                        case "global-id":
+                        case "esriFieldTypeGlobalID":
+                            return "{GUID}";
+                        default:
+                            return field.length && field.length < 30 ? "Sample" : "Sample value";
+                    }
+                }
+
+                function parseDateToEpoch(rawValue, rowIndex, errors, fieldLabel) {
+                    if (rawValue === null || rawValue === undefined || rawValue === "") {
+                        return null;
+                    }
+                    if (rawValue instanceof Date) {
+                        const time = rawValue.getTime();
+                        if (!Number.isNaN(time)) {
+                            return time;
+                        }
+                        addRowError(errors, rowIndex, `Date value for ${fieldLabel} is invalid.`);
+                        return undefined;
+                    }
+                    if (typeof rawValue === "number") {
+                        if (!Number.isFinite(rawValue)) {
+                            addRowError(errors, rowIndex, `Numeric date value for ${fieldLabel} is invalid.`);
+                            return undefined;
+                        }
+                        if (rawValue > 100000000000) {
+                            return Math.trunc(rawValue);
+                        }
+                        if (window.XLSX && window.XLSX.SSF && typeof window.XLSX.SSF.parse_date_code === "function") {
+                            const parsed = window.XLSX.SSF.parse_date_code(rawValue);
+                            if (parsed) {
+                                const date = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0));
+                                const time = date.getTime();
+                                if (!Number.isNaN(time)) {
+                                    return time;
+                                }
+                            }
+                        }
+                        const excelEpoch = new Date(Math.round((rawValue - 25569) * 86400) * 1000);
+                        const excelTime = excelEpoch.getTime();
+                        if (!Number.isNaN(excelTime)) {
+                            return excelTime;
+                        }
+                        addRowError(errors, rowIndex, `Unable to convert numeric date value for ${fieldLabel}.`);
+                        return undefined;
+                    }
+                    if (typeof rawValue === "string") {
+                        const trimmed = rawValue.trim();
+                        if (!trimmed) {
+                            return null;
+                        }
+                        const parsed = new Date(trimmed);
+                        if (!Number.isNaN(parsed.getTime())) {
+                            return parsed.getTime();
+                        }
+                        const normalized = trimmed.replace(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/, "$3-$1-$2");
+                        const fallbackDate = new Date(normalized);
+                        if (!Number.isNaN(fallbackDate.getTime())) {
+                            return fallbackDate.getTime();
+                        }
+                        addRowError(errors, rowIndex, `Unable to parse date value "${rawValue}" for ${fieldLabel}.`);
+                        return undefined;
+                    }
+                    addRowError(errors, rowIndex, `Unsupported date value for ${fieldLabel}.`);
+                    return undefined;
+                }
+
+                function castValueForField(field, rawValue, rowIndex, errors) {
+                    if (rawValue === null || rawValue === undefined) {
+                        return null;
+                    }
+                    if (typeof rawValue === "string" && rawValue.trim() === "") {
+                        return null;
+                    }
+                    const fieldType = (field.type || "").toLowerCase();
+                    if (fieldType.includes("integer") || fieldType === "oid") {
+                        const parsed = Number(rawValue);
+                        if (Number.isInteger(parsed)) {
+                            return parsed;
+                        }
+                        addRowError(errors, rowIndex, `Value "${rawValue}" is not a valid integer for ${field.alias || field.name}.`);
+                        return undefined;
+                    }
+                    if (fieldType.includes("double") || fieldType.includes("single") || fieldType.includes("float")) {
+                        const parsed = Number(rawValue);
+                        if (Number.isFinite(parsed)) {
+                            return parsed;
+                        }
+                        addRowError(errors, rowIndex, `Value "${rawValue}" is not a valid number for ${field.alias || field.name}.`);
+                        return undefined;
+                    }
+                    if (fieldType === "date" || fieldType === "esrifieldtypedate") {
+                        return parseDateToEpoch(rawValue, rowIndex, errors, field.alias || field.name);
+                    }
+                    if (fieldType.includes("guid")) {
+                        const normalized = normalizeGuid(rawValue);
+                        if (!normalized) {
+                            addRowError(errors, rowIndex, `Value "${rawValue}" is not a valid GUID for ${field.alias || field.name}.`);
+                            return undefined;
+                        }
+                        return `{${normalized}}`;
+                    }
+                    if (fieldType.includes("globalid")) {
+                        const normalized = normalizeGuid(rawValue);
+                        if (!normalized) {
+                            addRowError(errors, rowIndex, `Value "${rawValue}" is not a valid GlobalID for ${field.alias || field.name}.`);
+                            return undefined;
+                        }
+                        return `{${normalized}}`;
+                    }
+                    if (fieldType.includes("string") || fieldType === "text") {
+                        return String(rawValue).trim();
+                    }
+                    return rawValue;
+                }
+
+                function buildLowerKeyMap(record) {
+                    const map = new Map();
+                    if (!record || typeof record !== "object") {
+                        return map;
+                    }
+                    Object.entries(record).forEach(([key, value]) => {
+                        if (typeof key === "string") {
+                            map.set(key.trim().toLowerCase(), { originalKey: key, value });
+                        }
+                    });
+                    return map;
+                }
+
+                function getValueFromMap(lowerKeyMap, candidateNames, includeEmpty) {
+                    if (!lowerKeyMap || !(lowerKeyMap instanceof Map)) {
+                        return null;
+                    }
+                    for (const name of candidateNames) {
+                        if (!name) continue;
+                        const entry = lowerKeyMap.get(name.toLowerCase());
+                        if (!entry) continue;
+                        const value = entry.value;
+                        if (value === null || value === undefined) {
+                            if (includeEmpty) return value;
+                            continue;
+                        }
+                        if (typeof value === "string") {
+                            const trimmed = value.trim();
+                            if (trimmed) {
+                                return trimmed;
+                            }
+                            if (includeEmpty) {
+                                return "";
+                            }
+                        } else {
+                            return value;
+                        }
+                    }
+                    return null;
+                }
+
+                function escapeCsvValue(value) {
+                    if (value === null || value === undefined) {
+                        return "";
+                    }
+                    const stringValue = String(value);
+                    if (/[",\r\n]/.test(stringValue)) {
+                        return `"${stringValue.replace(/"/g, '""')}"`;
+                    }
+                    return stringValue;
+                }
+
+                function buildCsvTemplate(columns) {
+                    if (!columns || columns.length === 0) {
+                        return "";
+                    }
+                    const headerLine = columns.map(col => escapeCsvValue(col.name)).join(",");
+                    const sampleLine = columns.map(col => escapeCsvValue(col.sample || "")).join(",");
+                    return `${headerLine}\r\n${sampleLine}\r\n`;
+                }
+
+                function setTemplateLinkHref(linkElement, csvContent, key) {
+                    if (!linkElement) {
+                        return;
+                    }
+                    if (key && adminTemplateUrls[key]) {
+                        try {
+                            URL.revokeObjectURL(adminTemplateUrls[key]);
+                        } catch (error) {
+                            console.warn("Failed to revoke object URL:", error);
+                        }
+                        adminTemplateUrls[key] = null;
+                    }
+                    if (!csvContent) {
+                        linkElement.removeAttribute("href");
+                        return;
+                    }
+                    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                    const url = URL.createObjectURL(blob);
+                    if (key) {
+                        adminTemplateUrls[key] = url;
+                    }
+                    linkElement.href = url;
+                }
+
+                function buildAdtTemplateColumns() {
+                    if (!adtEditableTable) {
+                        return [];
+                    }
+                    const columns = [];
+                    const keyField = adtEditableForeignKeyField ||
+                        findFieldNameCaseInsensitive(adtEditableTable, "LineGUID") ||
+                        findFieldNameCaseInsensitive(adtEditableTable, "ParentGlobalID") ||
+                        findFieldNameCaseInsensitive(adtEditableTable, "GlobalID");
+                    if (keyField) {
+                        const fieldInfo = adtEditableTable.fields.find(f => f.name === keyField);
+                        columns.push({
+                            name: keyField,
+                            sample: "{LINE-GLOBALID}",
+                            alias: fieldInfo?.alias || keyField
+                        });
+                    }
+                    const candidateFields = [
+                        { names: ["join_key"], sample: "JOIN-KEY" },
+                        { names: ["Year"], sample: new Date().getFullYear().toString() },
+                        { names: ["ADT"], sample: "25000" },
+                        { names: ["CountDate", "Count_Date"], sample: "2024-01-15" }
+                    ];
+                    candidateFields.forEach(info => {
+                        const actualName = info.names.map(name => findFieldNameCaseInsensitive(adtEditableTable, name)).find(Boolean);
+                        if (actualName && !columns.some(col => col.name === actualName)) {
+                            const fieldInfo = adtEditableTable.fields.find(f => f.name === actualName);
+                            columns.push({
+                                name: actualName,
+                                sample: info.sample,
+                                alias: fieldInfo?.alias || actualName
+                            });
+                        }
+                    });
+                    return columns;
+                }
+
+                function buildTrafficTemplateColumns() {
+                    if (!trafficTableForCounts) {
+                        return [];
+                    }
+                    const table = trafficTableForCounts;
+                    const columns = [];
+                    const keyField = trafficEditableForeignKeyField ||
+                        findFieldNameCaseInsensitive(table, "Intersection_ID") ||
+                        findFieldNameCaseInsensitive(table, "IntersectionID");
+                    if (keyField) {
+                        const keyFieldInfo = table.fields.find(f => f.name === keyField);
+                        columns.push({
+                            name: keyField,
+                            sample: "INTERSECTION-ID",
+                            alias: keyFieldInfo?.alias || keyField
+                        });
+                    }
+
+                    const systemFieldNames = new Set([
+                        table.objectIdField?.toLowerCase(),
+                        table.globalIdField?.toLowerCase(),
+                        "shape",
+                        "shape__length",
+                        "shape__area",
+                        "created_user",
+                        "createdate",
+                        "creationdate",
+                        "creator",
+                        "editdate",
+                        "editor",
+                        "last_edited_user",
+                        "last_edited_date"
+                    ]);
+
+                    table.fields.forEach(field => {
+                        if (!field || !field.name) {
+                            return;
+                        }
+                        const fieldLower = field.name.toLowerCase();
+                        if (systemFieldNames.has(fieldLower)) {
+                            return;
+                        }
+                        if (field.type === "oid" || field.type === "geometry" || field.type === "blob" || field.type === "raster") {
+                            return;
+                        }
+                        if (!field.editable && fieldLower !== (keyField ? keyField.toLowerCase() : "")) {
+                            return;
+                        }
+                        if (columns.some(col => col.name === field.name)) {
+                            return;
+                        }
+                        columns.push({
+                            name: field.name,
+                            sample: sampleValueForField(field),
+                            alias: field.alias || field.name
+                        });
+                    });
+
+                    return columns;
+                }
+
+                function refreshAdminTemplateDownloads() {
+                    const ui = getAdminUi();
+                    if (!ui) {
+                        return;
+                    }
+                    if (!adminResourcesReady) {
+                        if (ui.adtTemplateLink) ui.adtTemplateLink.removeAttribute("href");
+                        if (ui.trafficTemplateLink) ui.trafficTemplateLink.removeAttribute("href");
+                        return;
+                    }
+                    if (ui.adtTemplateLink) {
+                        const adtColumns = buildAdtTemplateColumns();
+                        const adtCsv = buildCsvTemplate(adtColumns);
+                        setTemplateLinkHref(ui.adtTemplateLink, adtCsv, "adt");
+                    }
+                    if (ui.trafficTemplateLink) {
+                        const trafficColumns = buildTrafficTemplateColumns();
+                        const trafficCsv = buildCsvTemplate(trafficColumns);
+                        setTemplateLinkHref(ui.trafficTemplateLink, trafficCsv, "traffic");
+                    }
+                }
+
+                function readTabularFile(file) {
+                    return new Promise((resolve, reject) => {
+                        if (!file) {
+                            reject(new Error("No file provided."));
+                            return;
+                        }
+                        const extension = (file.name.split(".").pop() || "").toLowerCase();
+                        if (extension === "csv" || extension === "txt") {
+                            if (!window.Papa) {
+                                reject(new Error("PapaParse library is unavailable."));
+                                return;
+                            }
+                            window.Papa.parse(file, {
+                                header: true,
+                                skipEmptyLines: true,
+                                dynamicTyping: false,
+                                complete: (result) => {
+                                    if (result.errors && result.errors.length > 0) {
+                                        const firstError = result.errors[0];
+                                        reject(new Error(`CSV parsing error (row ${firstError.row}): ${firstError.message}`));
+                                    } else {
+                                        resolve(result.data || []);
+                                    }
+                                },
+                                error: (error) => reject(error)
+                            });
+                            return;
+                        }
+
+                        if (!window.XLSX) {
+                            reject(new Error("SheetJS (XLSX) library is unavailable."));
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            try {
+                                const data = event.target.result;
+                                const workbook = window.XLSX.read(data, { type: "array" });
+                                const firstSheet = workbook.SheetNames[0];
+                                const worksheet = workbook.Sheets[firstSheet];
+                                const json = window.XLSX.utils.sheet_to_json(worksheet, { defval: null });
+                                resolve(json);
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+                        reader.onerror = () => reject(reader.error || new Error("Failed to read the selected file."));
+                        reader.readAsArrayBuffer(file);
+                    });
+                }
+
+                async function handleAdtUpload() {
+                    const ui = getAdminUi();
+                    if (!ui) {
+                        return;
+                    }
+                    if (!adminResourcesReady || !adtEditableTable || !adtEditableForeignKeyField) {
+                        setFeedbackMessage(ui.adtFeedback, "ADT upload tools are not ready. Confirm you are signed in and retry.", "error");
+                        return;
+                    }
+                    const fileInput = ui.adtFileInput;
+                    const uploadButton = ui.adtUploadBtn;
+                    const feedback = ui.adtFeedback;
+                    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                        setFeedbackMessage(feedback, "Select a CSV or Excel file before uploading.", "warning");
+                        return;
+                    }
+                    const file = fileInput.files[0];
+                    if (!file) {
+                        setFeedbackMessage(feedback, "Unable to read the selected file.", "error");
+                        return;
+                    }
+                    if (uploadButton) uploadButton.disabled = true;
+                    setFeedbackMessage(feedback, `Processing ${file.name}...`, "info");
+                    try {
+                        const rows = await readTabularFile(file);
+                        const outcome = await processAdtRecords(rows);
+                        const tone = outcome.tone || (outcome.success ? "success" : "error");
+                        setFeedbackMessage(feedback, outcome.message, tone);
+                        if (outcome.success) {
+                            fileInput.value = "";
+                            await rebuildAdtParentLookups().catch((error) => console.warn("Failed to refresh ADT parent lookup after upload:", error));
+                            adtAllParentOids = null;
+                            if (adtLineLayer) {
+                                adtLineLayer.refresh();
+                            }
+                            if (adtRelatedTableLayer) {
+                                adtRelatedTableLayer.refresh();
+                            }
+                            applyFiltersAndDisplay().catch(error => console.warn("Failed to refresh view after ADT upload:", error));
+                        }
+                    } catch (error) {
+                        console.error("ADT upload failed:", error);
+                        setFeedbackMessage(feedback, `Upload failed: ${error.message || error}`, "error");
+                    } finally {
+                        if (uploadButton) uploadButton.disabled = false;
+                    }
+                }
+
+                async function processAdtRecords(records) {
+                    if (!Array.isArray(records) || records.length === 0) {
+                        return {
+                            success: false,
+                            tone: "warning",
+                            message: "The selected file did not contain any data rows."
+                        };
+                    }
+                    const table = adtEditableTable;
+                    if (!table) {
+                        throw new Error("ADT editable table is not available.");
+                    }
+                    const lowerFieldMap = new Map();
+                    table.fields.forEach(field => {
+                        if (field && field.name) {
+                            lowerFieldMap.set(field.name.toLowerCase(), field);
+                        }
+                    });
+                    const objectIdField = table.objectIdField || null;
+                    const globalIdField = table.globalIdField || null;
+                    const joinKeyField = findFieldNameCaseInsensitive(table, "join_key");
+                    const adtValueField = findFieldNameCaseInsensitive(table, "ADT");
+                    const yearValueField = findFieldNameCaseInsensitive(table, "Year");
+                    const foreignKeyField = adtEditableForeignKeyField;
+                    const processedRows = [];
+                    const rowsNeedingLookup = [];
+                    records.forEach((record, index) => {
+                        const rowNumber = index + 2;
+                        const errors = [];
+                        const lowerMap = buildLowerKeyMap(record);
+                        const parentGuidRaw = getValueFromMap(lowerMap, ["lineguid", "line_guid", "line guid"]);
+                        const parentJoinKeyRaw = getValueFromMap(lowerMap, ["join_key", "joinkey", "join key"]);
+                        const parentGuid = normalizeGuid(parentGuidRaw);
+                        const parentJoinKey = normalizeJoinKey(parentJoinKeyRaw);
+                        let parentInfo = null;
+                        if (parentGuid && adtParentLookupByGuid.has(parentGuid)) {
+                            parentInfo = adtParentLookupByGuid.get(parentGuid);
+                        }
+                        if (!parentInfo && parentJoinKey && adtParentLookupByJoinKey.has(parentJoinKey)) {
+                            parentInfo = adtParentLookupByJoinKey.get(parentJoinKey);
+                        }
+                        if (!parentInfo) {
+                            addRowError(errors, rowNumber, "Unable to locate an ADT line using LineGUID or join_key.");
+                        }
+                        const attributes = {};
+                        let updateObjectId = null;
+                        let updateGlobalId = null;
+                        lowerMap.forEach((entry, lowerKey) => {
+                            const field = lowerFieldMap.get(lowerKey);
+                            if (!field) {
+                                return;
+                            }
+                            if (objectIdField && field.name === objectIdField) {
+                                const parsed = Number(entry.value);
+                                if (Number.isInteger(parsed)) {
+                                    updateObjectId = parsed;
+                                } else if (entry.value !== null && entry.value !== undefined && entry.value !== "") {
+                                    addRowError(errors, rowNumber, `OBJECTID value "${entry.value}" is not a valid integer.`);
+                                }
+                                return;
+                            }
+                            if (globalIdField && field.name === globalIdField) {
+                                const normalized = normalizeGuid(entry.value);
+                                if (normalized) {
+                                    updateGlobalId = normalized;
+                                } else if (entry.value) {
+                                    addRowError(errors, rowNumber, `GlobalID value "${entry.value}" is not a valid GUID.`);
+                                }
+                                return;
+                            }
+                            const casted = castValueForField(field, entry.value, rowNumber, errors);
+                            if (casted !== undefined) {
+                                attributes[field.name] = casted;
+                            }
+                        });
+                        if (!parentGuid && !parentJoinKey) {
+                            addRowError(errors, rowNumber, "Provide either LineGUID or join_key for each record.");
+                        }
+                        if (parentInfo && foreignKeyField) {
+                            const keyRaw = parentInfo.keyValueRaw || `{${parentInfo.keyValueNormalized}}`;
+                            attributes[foreignKeyField] = keyRaw;
+                        }
+                        if (joinKeyField && parentInfo && parentInfo.joinKeyRaw !== undefined && attributes[joinKeyField] === undefined) {
+                            attributes[joinKeyField] = parentInfo.joinKeyRaw;
+                        }
+                        if (adtValueField && (attributes[adtValueField] === undefined || attributes[adtValueField] === null || attributes[adtValueField] === "")) {
+                            addRowError(errors, rowNumber, "ADT field is required.");
+                        }
+                        if (yearValueField && (attributes[yearValueField] === undefined || attributes[yearValueField] === null || attributes[yearValueField] === "")) {
+                            addRowError(errors, rowNumber, "Year field is required.");
+                        }
+                        const processed = {
+                            rowNumber,
+                            errors,
+                            attributes,
+                            parentInfo,
+                            updateObjectId,
+                            updateGlobalId,
+                            originalRecord: record
+                        };
+                        if (!updateObjectId && updateGlobalId) {
+                            rowsNeedingLookup.push(processed);
+                        }
+                        processedRows.push(processed);
+                    });
+
+                    if (rowsNeedingLookup.length > 0 && globalIdField) {
+                        await populateAdtObjectIdsFromGlobalIds(rowsNeedingLookup);
+                    } else if (rowsNeedingLookup.length > 0 && !globalIdField) {
+                        rowsNeedingLookup.forEach(row => addRowError(row.errors, row.rowNumber, "GlobalID updates are not supported for this table. Include OBJECTID instead."));
+                    }
+
+                    const rowErrors = [];
+                    processedRows.forEach(row => {
+                        if (!row.parentInfo) {
+                            addRowError(row.errors, row.rowNumber, "Parent ADT line was not resolved.");
+                        }
+                        if (row.errors.length > 0) {
+                            rowErrors.push(...row.errors);
+                        }
+                    });
+
+                    const addFeatures = [];
+                    const addRows = [];
+                    const updateFeatures = [];
+                    const updateRows = [];
+                    processedRows.forEach(row => {
+                        if (row.errors.length > 0 || !row.parentInfo) {
+                            return;
+                        }
+                        if (row.updateObjectId) {
+                            if (objectIdField) {
+                                row.attributes[objectIdField] = row.updateObjectId;
+                            }
+                            updateFeatures.push({ attributes: row.attributes });
+                            updateRows.push(row);
+                        } else {
+                            addFeatures.push({ attributes: row.attributes });
+                            addRows.push(row);
+                        }
+                    });
+
+                    if (addFeatures.length === 0 && updateFeatures.length === 0) {
+                        const message = rowErrors.length > 0
+                            ? `No records were uploaded because of validation issues. ${formatRowErrorMessages(rowErrors, 5)}`
+                            : "No valid records were found in the upload file.";
+                        return {
+                            success: false,
+                            tone: rowErrors.length > 0 ? "error" : "warning",
+                            message
+                        };
+                    }
+
+                    const payload = {};
+                    if (addFeatures.length > 0) payload.addFeatures = addFeatures;
+                    if (updateFeatures.length > 0) payload.updateFeatures = updateFeatures;
+
+                    const editResults = await adtEditableTable.applyEdits(payload);
+                    const addResults = (editResults && editResults.addFeatureResults) ? editResults.addFeatureResults : [];
+                    const updateResults = (editResults && editResults.updateFeatureResults) ? editResults.updateFeatureResults : [];
+
+                    let successfulAdds = 0;
+                    let successfulUpdates = 0;
+                    const serverErrors = [];
+
+                    addResults.forEach((result, index) => {
+                        if (result && result.success) {
+                            successfulAdds += 1;
+                        } else {
+                            const row = addRows[index];
+                            const message = result && result.error && result.error.message ? result.error.message : "Unknown error adding record.";
+                            serverErrors.push({ row: row ? row.rowNumber : null, message });
+                        }
+                    });
+
+                    updateResults.forEach((result, index) => {
+                        if (result && result.success) {
+                            successfulUpdates += 1;
+                        } else {
+                            const row = updateRows[index];
+                            const message = result && result.error && result.error.message ? result.error.message : "Unknown error updating record.";
+                            serverErrors.push({ row: row ? row.rowNumber : null, message });
+                        }
+                    });
+
+                    const combinedErrors = [...rowErrors, ...serverErrors];
+                    const totalSuccesses = successfulAdds + successfulUpdates;
+                    const parts = [];
+                    if (successfulAdds > 0) {
+                        parts.push(`${successfulAdds} add${successfulAdds === 1 ? "" : "s"}`);
+                    }
+                    if (successfulUpdates > 0) {
+                        parts.push(`${successfulUpdates} update${successfulUpdates === 1 ? "" : "s"}`);
+                    }
+                    let message = parts.length > 0 ? `Completed ${parts.join(" and ")}.` : "No changes were applied.";
+                    if (combinedErrors.length > 0) {
+                        message += ` ${formatRowErrorMessages(combinedErrors, 5)}`;
+                    }
+                    const tone = combinedErrors.length === 0
+                        ? "success"
+                        : totalSuccesses > 0 ? "warning" : "error";
+                    return {
+                        success: totalSuccesses > 0 && combinedErrors.length === 0,
+                        tone,
+                        message
+                    };
+                }
+
+                async function populateAdtObjectIdsFromGlobalIds(rows) {
+                    if (!adtEditableTable || !Array.isArray(rows) || rows.length === 0) {
+                        return;
+                    }
+                    const globalIds = Array.from(new Set(rows
+                        .map(row => row.updateGlobalId)
+                        .filter(Boolean)));
+                    if (globalIds.length === 0) {
+                        return;
+                    }
+                    const mapping = new Map();
+                    const chunkSize = 200;
+                    for (let i = 0; i < globalIds.length; i += chunkSize) {
+                        const chunk = globalIds.slice(i, i + chunkSize);
+                        const query = adtEditableTable.createQuery();
+                        query.returnGeometry = false;
+                        query.outFields = [
+                            adtEditableTable.objectIdField,
+                            adtEditableTable.globalIdField
+                        ];
+                        query.globalIds = chunk.map(guid => `{${guid}}`);
+                        try {
+                            const response = await adtEditableTable.queryFeatures(query);
+                            const features = response && response.features ? response.features : [];
+                            features.forEach(feature => {
+                                const attrs = feature.attributes || {};
+                                const gid = normalizeGuid(attrs[adtEditableTable.globalIdField]);
+                                const oid = attrs[adtEditableTable.objectIdField];
+                                if (gid && Number.isInteger(oid)) {
+                                    mapping.set(gid, oid);
+                                }
+                            });
+                        } catch (error) {
+                            console.warn("Failed to query ADT table for GlobalIDs:", error);
+                        }
+                    }
+                    rows.forEach(row => {
+                        if (!row.updateGlobalId) {
+                            return;
+                        }
+                        const objectId = mapping.get(row.updateGlobalId);
+                        if (Number.isInteger(objectId)) {
+                            row.updateObjectId = objectId;
+                        } else {
+                            addRowError(row.errors, row.rowNumber, `Could not find an existing record with GlobalID ${row.updateGlobalId}.`);
+                        }
+                    });
+                }
+
+                async function handleTrafficUpload() {
+                    const ui = getAdminUi();
+                    if (!ui) {
+                        return;
+                    }
+                    if (!adminResourcesReady || !trafficTableForCounts || !trafficEditableForeignKeyField) {
+                        setFeedbackMessage(ui.trafficFeedback, "Traffic upload tools are not ready. Confirm you are signed in and retry.", "error");
+                        return;
+                    }
+                    const fileInput = ui.trafficFileInput;
+                    const uploadButton = ui.trafficUploadBtn;
+                    const feedback = ui.trafficFeedback;
+                    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                        setFeedbackMessage(feedback, "Select a CSV or Excel file before uploading.", "warning");
+                        return;
+                    }
+                    const file = fileInput.files[0];
+                    if (!file) {
+                        setFeedbackMessage(feedback, "Unable to read the selected file.", "error");
+                        return;
+                    }
+                    if (uploadButton) uploadButton.disabled = true;
+                    setFeedbackMessage(feedback, `Processing ${file.name}...`, "info");
+                    try {
+                        const rows = await readTabularFile(file);
+                        const outcome = await processTrafficRecords(rows);
+                        const tone = outcome.tone || (outcome.success ? "success" : "error");
+                        setFeedbackMessage(feedback, outcome.message, tone);
+                        if (outcome.success) {
+                            fileInput.value = "";
+                            if (trafficTableForCounts) {
+                                trafficTableForCounts.refresh();
+                            }
+                            applyFiltersAndDisplay().catch(error => console.warn("Failed to refresh view after traffic upload:", error));
+                        }
+                    } catch (error) {
+                        console.error("Traffic upload failed:", error);
+                        setFeedbackMessage(feedback, `Upload failed: ${error.message || error}`, "error");
+                    } finally {
+                        if (uploadButton) uploadButton.disabled = false;
+                    }
+                }
+
+                async function processTrafficRecords(records) {
+                    if (!Array.isArray(records) || records.length === 0) {
+                        return {
+                            success: false,
+                            tone: "warning",
+                            message: "The selected file did not contain any data rows."
+                        };
+                    }
+                    const table = trafficTableForCounts;
+                    if (!table) {
+                        throw new Error("Traffic related table is not available.");
+                    }
+                    const lowerFieldMap = new Map();
+                    table.fields.forEach(field => {
+                        if (field && field.name) {
+                            lowerFieldMap.set(field.name.toLowerCase(), field);
+                        }
+                    });
+                    const objectIdField = table.objectIdField || null;
+                    const globalIdField = table.globalIdField || null;
+                    const intersectionTableField = findFieldNameCaseInsensitive(table, "Intersection_ID") ||
+                        findFieldNameCaseInsensitive(table, "IntersectionID");
+                    const foreignKeyField = trafficEditableForeignKeyField;
+                    const foreignKeyFieldInfo = foreignKeyField
+                        ? table.fields.find(field => field.name === foreignKeyField)
+                        : null;
+                    const foreignKeyFieldType = (foreignKeyFieldInfo && foreignKeyFieldInfo.type)
+                        ? foreignKeyFieldInfo.type.toLowerCase()
+                        : "";
+                    const foreignKeyIsGuid = foreignKeyFieldType.includes("guid") || foreignKeyFieldType.includes("globalid");
+                    const majorStreetField = findFieldNameCaseInsensitive(table, "Major_Street") ||
+                        findFieldNameCaseInsensitive(table, "Major_Streets");
+                    const minorStreetField = findFieldNameCaseInsensitive(table, "Minor_Street") ||
+                        findFieldNameCaseInsensitive(table, "Minor_Streets");
+                    const yearField = findFieldNameCaseInsensitive(table, "Year");
+                    const periodField = findFieldNameCaseInsensitive(table, "Period");
+                    const dataTypeField = findFieldNameCaseInsensitive(table, "Data_Type");
+                    const directionalFieldMap = {
+                        S: findFieldNameCaseInsensitive(table, "S"),
+                        W: findFieldNameCaseInsensitive(table, "W"),
+                        N: findFieldNameCaseInsensitive(table, "N"),
+                        E: findFieldNameCaseInsensitive(table, "E"),
+                        EB: findFieldNameCaseInsensitive(table, "EB"),
+                        WB: findFieldNameCaseInsensitive(table, "WB"),
+                        SB: findFieldNameCaseInsensitive(table, "SB"),
+                        Intersection_Value: findFieldNameCaseInsensitive(table, "Intersection_Value"),
+                        EBT: findFieldNameCaseInsensitive(table, "EBT"),
+                        EBR: findFieldNameCaseInsensitive(table, "EBR"),
+                        WBL: findFieldNameCaseInsensitive(table, "WBL"),
+                        WBT: findFieldNameCaseInsensitive(table, "WBT"),
+                        WBR: findFieldNameCaseInsensitive(table, "WBR"),
+                        NBL: findFieldNameCaseInsensitive(table, "NBL"),
+                        NBT: findFieldNameCaseInsensitive(table, "NBT"),
+                        NBR: findFieldNameCaseInsensitive(table, "NBR"),
+                        SBL: findFieldNameCaseInsensitive(table, "SBL"),
+                        SBT: findFieldNameCaseInsensitive(table, "SBT"),
+                        SBR: findFieldNameCaseInsensitive(table, "SBR")
+                    };
+                    const baseRequiredFields = [
+                        { field: majorStreetField, label: "Major_Street" },
+                        { field: minorStreetField, label: "Minor_Street" },
+                        { field: yearField, label: "Year" },
+                        { field: periodField, label: "Period" },
+                        { field: dataTypeField, label: "Data_Type" }
+                    ].filter(entry => !!entry.field);
+                    const processedRows = [];
+                    const rowsNeedingLookup = [];
+                    records.forEach((record, index) => {
+                        const rowNumber = index + 2;
+                        const errors = [];
+                        const lowerMap = buildLowerKeyMap(record);
+                        const intersectionCandidates = ["intersection_id", "intersectionid", "intersection id"];
+                        const guidCandidates = ["parentglobalid", "parent_globalid", "intersection_globalid", "intersectionguid", "intersection_guid", "globalid_parent"];
+                        if (foreignKeyField) {
+                            const fkLower = foreignKeyField.toLowerCase();
+                            if (foreignKeyIsGuid) {
+                                guidCandidates.push(fkLower);
+                            } else {
+                                intersectionCandidates.push(fkLower);
+                            }
+                        }
+                        const intersectionIdRaw = getValueFromMap(lowerMap, intersectionCandidates);
+                        const parentGuidRaw = getValueFromMap(lowerMap, guidCandidates);
+                        const intersectionIdNormalized = intersectionIdRaw ? normalizeJoinKey(intersectionIdRaw) : null;
+                        const parentGuidNormalized = normalizeGuid(parentGuidRaw);
+                        let parentInfo = null;
+                        if (intersectionIdNormalized && trafficParentLookupById.has(intersectionIdNormalized)) {
+                            parentInfo = trafficParentLookupById.get(intersectionIdNormalized);
+                        }
+                        if (!parentInfo && parentGuidNormalized && trafficParentLookupByGuid.has(parentGuidNormalized)) {
+                            parentInfo = trafficParentLookupByGuid.get(parentGuidNormalized);
+                        }
+                        if (!parentInfo) {
+                            addRowError(errors, rowNumber, "Unable to locate an intersection using Intersection_ID or parent GlobalID.");
+                        }
+                        const attributes = {};
+                        let updateObjectId = null;
+                        let updateGlobalId = null;
+                        lowerMap.forEach((entry, lowerKey) => {
+                            const field = lowerFieldMap.get(lowerKey);
+                            if (!field) {
+                                return;
+                            }
+                            if (objectIdField && field.name === objectIdField) {
+                                const parsed = Number(entry.value);
+                                if (Number.isInteger(parsed)) {
+                                    updateObjectId = parsed;
+                                } else if (entry.value !== null && entry.value !== undefined && entry.value !== "") {
+                                    addRowError(errors, rowNumber, `OBJECTID value "${entry.value}" is not a valid integer.`);
+                                }
+                                return;
+                            }
+                            if (globalIdField && field.name === globalIdField) {
+                                const normalized = normalizeGuid(entry.value);
+                                if (normalized) {
+                                    updateGlobalId = normalized;
+                                } else if (entry.value) {
+                                    addRowError(errors, rowNumber, `GlobalID value "${entry.value}" is not a valid GUID.`);
+                                }
+                                return;
+                            }
+                            const casted = castValueForField(field, entry.value, rowNumber, errors);
+                            if (casted !== undefined) {
+                                attributes[field.name] = casted;
+                            }
+                        });
+                        if (!intersectionIdRaw && !parentGuidRaw) {
+                            addRowError(errors, rowNumber, "Provide Intersection_ID or parent GlobalID for each record.");
+                        }
+                        if (parentInfo && foreignKeyField) {
+                            let keyValue;
+                            if (foreignKeyIsGuid || parentInfo.isGuidKey) {
+                                const guidValue = parentInfo.primaryKeyRaw || parentInfo.primaryKeyNormalized;
+                                keyValue = guidValue ? `{${normalizeGuid(guidValue)}}` : undefined;
+                            } else {
+                                keyValue = parentInfo.primaryKeyRaw !== null && parentInfo.primaryKeyRaw !== undefined
+                                    ? parentInfo.primaryKeyRaw
+                                    : parentInfo.intersectionIdRaw;
+                            }
+                            if (keyValue !== undefined) {
+                                attributes[foreignKeyField] = keyValue;
+                            }
+                        }
+                        if (intersectionTableField && parentInfo && parentInfo.intersectionIdRaw !== undefined && attributes[intersectionTableField] === undefined) {
+                            attributes[intersectionTableField] = parentInfo.intersectionIdRaw;
+                        }
+
+                        baseRequiredFields.forEach(({ field, label }) => {
+                            if (attributes[field] === undefined || attributes[field] === null || (typeof attributes[field] === "string" && attributes[field].trim() === "")) {
+                                addRowError(errors, rowNumber, `${label} is required.`);
+                            }
+                        });
+
+                        let dataTypeValue = dataTypeField ? attributes[dataTypeField] : null;
+                        if (typeof dataTypeValue === "string") {
+                            dataTypeValue = dataTypeValue.trim();
+                        }
+                        const dataTypeLower = dataTypeValue ? dataTypeValue.toLowerCase() : "";
+
+                        if (dataTypeLower === "bike" || dataTypeLower === "bikes" || dataTypeLower === "bicycle" || dataTypeLower === "ped" || dataTypeLower === "pedestrian") {
+                            ["S", "W", "N", "E"].forEach(dir => {
+                                const fieldName = directionalFieldMap[dir];
+                                if (fieldName && (attributes[fieldName] === undefined || attributes[fieldName] === null || attributes[fieldName] === "")) {
+                                    addRowError(errors, rowNumber, `${dir} value is required for ${dataTypeValue || "Bike/Pedestrian"} records.`);
+                                }
+                            });
+                        }
+
+                        if (dataTypeLower === "turning movement heavy vehicles" || dataTypeLower === "turningmovementheavyvehicles") {
+                            ["EBT", "EBR", "WBL", "WBT", "WBR", "NBL", "NBT", "NBR", "SBT", "SBR", "SBL"].forEach(dir => {
+                                const fieldName = directionalFieldMap[dir];
+                                if (fieldName && (attributes[fieldName] === undefined || attributes[fieldName] === null || attributes[fieldName] === "")) {
+                                    addRowError(errors, rowNumber, `${dir} value is required for Turning Movement Heavy Vehicles records.`);
+                                }
+                            });
+                        }
+
+                        if (dataTypeLower === "phf") {
+                            const ebField = directionalFieldMap.EB;
+                            const wbField = directionalFieldMap.WB;
+                            const sbField = directionalFieldMap.SB;
+                            const intersectionValueField = directionalFieldMap.Intersection_Value;
+                            const hasDirectionalTotals = [ebField, wbField, sbField].every(fieldName => fieldName && attributes[fieldName] !== undefined && attributes[fieldName] !== null && attributes[fieldName] !== "");
+                            const hasIntersectionValue = intersectionValueField && attributes[intersectionValueField] !== undefined && attributes[intersectionValueField] !== null && attributes[intersectionValueField] !== "";
+                            if (!hasDirectionalTotals && !hasIntersectionValue) {
+                                addRowError(errors, rowNumber, "PHF records require EB, WB, and SB values or an Intersection_Value.");
+                            }
+                        }
+
+                        const processed = {
+                            rowNumber,
+                            errors,
+                            attributes,
+                            parentInfo,
+                            updateObjectId,
+                            updateGlobalId,
+                            originalRecord: record
+                        };
+                        if (!updateObjectId && updateGlobalId) {
+                            rowsNeedingLookup.push(processed);
+                        }
+                        processedRows.push(processed);
+                    });
+
+                    if (rowsNeedingLookup.length > 0 && globalIdField) {
+                        await populateTrafficObjectIdsFromGlobalIds(rowsNeedingLookup);
+                    } else if (rowsNeedingLookup.length > 0 && !globalIdField) {
+                        rowsNeedingLookup.forEach(row => addRowError(row.errors, row.rowNumber, "GlobalID updates are not supported for this table. Include OBJECTID instead."));
+                    }
+
+                    const rowErrors = [];
+                    processedRows.forEach(row => {
+                        if (!row.parentInfo) {
+                            addRowError(row.errors, row.rowNumber, "Parent intersection was not resolved.");
+                        }
+                        if (row.errors.length > 0) {
+                            rowErrors.push(...row.errors);
+                        }
+                    });
+
+                    const addFeatures = [];
+                    const addRows = [];
+                    const updateFeatures = [];
+                    const updateRows = [];
+                    processedRows.forEach(row => {
+                        if (row.errors.length > 0 || !row.parentInfo) {
+                            return;
+                        }
+                        if (row.updateObjectId) {
+                            if (objectIdField) {
+                                row.attributes[objectIdField] = row.updateObjectId;
+                            }
+                            updateFeatures.push({ attributes: row.attributes });
+                            updateRows.push(row);
+                        } else {
+                            addFeatures.push({ attributes: row.attributes });
+                            addRows.push(row);
+                        }
+                    });
+
+                    if (addFeatures.length === 0 && updateFeatures.length === 0) {
+                        const message = rowErrors.length > 0
+                            ? `No records were uploaded because of validation issues. ${formatRowErrorMessages(rowErrors, 5)}`
+                            : "No valid records were found in the upload file.";
+                        return {
+                            success: false,
+                            tone: rowErrors.length > 0 ? "error" : "warning",
+                            message
+                        };
+                    }
+
+                    const payload = {};
+                    if (addFeatures.length > 0) payload.addFeatures = addFeatures;
+                    if (updateFeatures.length > 0) payload.updateFeatures = updateFeatures;
+
+                    const editResults = await trafficTableForCounts.applyEdits(payload);
+                    const addResults = (editResults && editResults.addFeatureResults) ? editResults.addFeatureResults : [];
+                    const updateResults = (editResults && editResults.updateFeatureResults) ? editResults.updateFeatureResults : [];
+
+                    let successfulAdds = 0;
+                    let successfulUpdates = 0;
+                    const serverErrors = [];
+
+                    addResults.forEach((result, index) => {
+                        if (result && result.success) {
+                            successfulAdds += 1;
+                        } else {
+                            const row = addRows[index];
+                            const message = result && result.error && result.error.message ? result.error.message : "Unknown error adding record.";
+                            serverErrors.push({ row: row ? row.rowNumber : null, message });
+                        }
+                    });
+
+                    updateResults.forEach((result, index) => {
+                        if (result && result.success) {
+                            successfulUpdates += 1;
+                        } else {
+                            const row = updateRows[index];
+                            const message = result && result.error && result.error.message ? result.error.message : "Unknown error updating record.";
+                            serverErrors.push({ row: row ? row.rowNumber : null, message });
+                        }
+                    });
+
+                    const combinedErrors = [...rowErrors, ...serverErrors];
+                    const totalSuccesses = successfulAdds + successfulUpdates;
+                    const parts = [];
+                    if (successfulAdds > 0) {
+                        parts.push(`${successfulAdds} add${successfulAdds === 1 ? "" : "s"}`);
+                    }
+                    if (successfulUpdates > 0) {
+                        parts.push(`${successfulUpdates} update${successfulUpdates === 1 ? "" : "s"}`);
+                    }
+                    let message = parts.length > 0 ? `Completed ${parts.join(" and ")}.` : "No changes were applied.";
+                    if (combinedErrors.length > 0) {
+                        message += ` ${formatRowErrorMessages(combinedErrors, 5)}`;
+                    }
+                    const tone = combinedErrors.length === 0
+                        ? "success"
+                        : totalSuccesses > 0 ? "warning" : "error";
+                    return {
+                        success: totalSuccesses > 0 && combinedErrors.length === 0,
+                        tone,
+                        message
+                    };
+                }
+
+                async function populateTrafficObjectIdsFromGlobalIds(rows) {
+                    if (!trafficTableForCounts || !Array.isArray(rows) || rows.length === 0) {
+                        return;
+                    }
+                    const globalIds = Array.from(new Set(rows
+                        .map(row => row.updateGlobalId)
+                        .filter(Boolean)));
+                    if (globalIds.length === 0) {
+                        return;
+                    }
+                    const mapping = new Map();
+                    const chunkSize = 200;
+                    for (let i = 0; i < globalIds.length; i += chunkSize) {
+                        const chunk = globalIds.slice(i, i + chunkSize);
+                        const query = trafficTableForCounts.createQuery();
+                        query.returnGeometry = false;
+                        query.outFields = [
+                            trafficTableForCounts.objectIdField,
+                            trafficTableForCounts.globalIdField
+                        ];
+                        query.globalIds = chunk.map(guid => `{${guid}}`);
+                        try {
+                            const response = await trafficTableForCounts.queryFeatures(query);
+                            const features = response && response.features ? response.features : [];
+                            features.forEach(feature => {
+                                const attrs = feature.attributes || {};
+                                const gid = normalizeGuid(attrs[trafficTableForCounts.globalIdField]);
+                                const oid = attrs[trafficTableForCounts.objectIdField];
+                                if (gid && Number.isInteger(oid)) {
+                                    mapping.set(gid, oid);
+                                }
+                            });
+                        } catch (error) {
+                            console.warn("Failed to query traffic table for GlobalIDs:", error);
+                        }
+                    }
+                    rows.forEach(row => {
+                        if (!row.updateGlobalId) {
+                            return;
+                        }
+                        const objectId = mapping.get(row.updateGlobalId);
+                        if (Number.isInteger(objectId)) {
+                            row.updateObjectId = objectId;
+                        } else {
+                            addRowError(row.errors, row.rowNumber, `Could not find an existing record with GlobalID ${row.updateGlobalId}.`);
+                        }
+                    });
+                }
+
+                function initializeAdminPanel(oauthInfo) {
+                    const ui = getAdminUi();
+                    if (!ui.panel) {
+                        console.warn("Admin panel container not found; admin tools will be disabled.");
+                        return;
+                    }
+
+                    updateAdminUiState();
+
+                    if (!isOAuthConfigured()) {
+                        setAdminStatus("ArcGIS sign-in is not configured. Set OAUTH_APP_ID to enable uploads.", "warning");
+                        if (ui.signInBtn) {
+                            ui.signInBtn.disabled = true;
+                        }
+                        return;
+                    }
+
+                    if (ui.signInBtn) {
+                        ui.signInBtn.addEventListener("click", () => handleAdminSignIn(oauthInfo));
+                    }
+                    if (ui.signOutBtn) {
+                        ui.signOutBtn.addEventListener("click", () => handleAdminSignOut());
+                    }
+
+                    if (ui.adtUploadBtn) {
+                        ui.adtUploadBtn.addEventListener("click", () => handleAdtUpload());
+                    }
+                    if (ui.adtManualBtn) {
+                        ui.adtManualBtn.addEventListener("click", () => setFeedbackMessage(ui.adtFeedback, "Manual ADT entry is not available yet. Use the upload workflow.", "warning"));
+                    }
+                    if (ui.trafficUploadBtn) {
+                        ui.trafficUploadBtn.addEventListener("click", () => handleTrafficUpload());
+                    }
+                    if (ui.trafficManualBtn) {
+                        ui.trafficManualBtn.addEventListener("click", () => setFeedbackMessage(ui.trafficFeedback, "Manual traffic entry is not available yet. Use the upload workflow.", "warning"));
+                    }
+
+                    IdentityManager.checkSignInStatus(oauthInfo.portalUrl + "/sharing").then((credential) => {
+                        applySignedInCredential(credential);
+                    }).catch(() => {
+                        setAdminStatus("Sign in with your ArcGIS Online credentials to upload data.");
+                        updateAdminUiState();
+                    });
                 }
 
                 function updateFilterStatusSummary(totalConsidered, totalDisplayed, selectionCount, isFilteringSelection) {
@@ -1926,7 +3689,7 @@ let selectedFeatures = [];
                 async function init() {
                     showLoadingSpinner();
                     try {
-                        map = new WebMap({ portalItem: { id: "e22b69d781254a3bbbf5d2310ba75315" } });
+                        map = new WebMap({ portalItem: { id: "6e90dece2b0a4833aa0379c01d0df23c" } });
                         view = new MapView({
                             container: VIEW_DIV_ID,
                             map: map,
@@ -2041,6 +3804,17 @@ let selectedFeatures = [];
                     }
                 }
 
+                if (isOAuthConfigured()) {
+                    registeredOAuthInfo = new OAuthInfo({
+                        appId: OAUTH_APP_ID,
+                        portalUrl: PORTAL_URL,
+                        popup: true,
+                        popupCallbackUrl: OAUTH_REDIRECT_URI
+                    });
+                    IdentityManager.registerOAuthInfos([registeredOAuthInfo]);
+                }
+
+                initializeAdminPanel(registeredOAuthInfo);
                 init();
 
             });
