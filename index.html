@@ -327,6 +327,112 @@
             display: block;
             margin-bottom: 4px;
         }
+        #filterStatusSummary {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #333;
+        }
+
+        #tableToolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            border-bottom: 1px solid #d4d4d4;
+            background-color: #fafafa;
+            gap: 12px;
+        }
+
+        #tableToolbar .toolbar-left {
+            flex: 1 1 auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        #tableTabs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .table-tab {
+            padding: 6px 12px;
+            font-size: 13px;
+            border: 1px solid #b5b5b5;
+            border-radius: 4px;
+            background: linear-gradient(to bottom, #ffffff, #e8e8e8);
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, color 0.2s;
+        }
+
+        .table-tab:hover:not(.active) {
+            background: linear-gradient(to bottom, #fdfdfd, #dddddd);
+            border-color: #999;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        }
+
+        .table-tab.active {
+            background: linear-gradient(to bottom, #4b8fcf, #3f7bb4);
+            color: #ffffff;
+            border-color: #3a6fa6;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .table-tab:focus-visible {
+            outline: 2px solid #4b8fcf;
+            outline-offset: 2px;
+        }
+
+        #tableSummaryText {
+            flex: 1 1 auto;
+            font-size: 13px;
+            color: #3a3a3a;
+            line-height: 1.4;
+        }
+
+        #tableToolbar .toolbar-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        #tableToolbar button {
+            padding: 6px 12px;
+            font-size: 13px;
+            border: 1px solid #b5b5b5;
+            border-radius: 4px;
+            background: linear-gradient(to bottom, #ffffff, #e8e8e8);
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+
+        #tableToolbar button:hover {
+            background: linear-gradient(to bottom, #fdfdfd, #dddddd);
+            border-color: #999;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        }
+
+        #tableToolbar button:active {
+            background: linear-gradient(to bottom, #dcdcdc, #c4c4c4);
+            border-color: #7a7a7a;
+        }
+
+        #tableToolbar button:focus-visible {
+            outline: 2px solid #4b8fcf;
+            outline-offset: 2px;
+        }
+
+        #tableToolbar button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: linear-gradient(to bottom, #f2f2f2, #d8d8d8);
+            border-color: #c0c0c0;
+            box-shadow: none;
+        }
     </style>
 </head>
 
@@ -342,6 +448,19 @@
         </div>
 
         <div id="featuresDiv">
+            <div id="tableToolbar">
+                <div class="toolbar-left">
+                    <div id="tableTabs" role="tablist" aria-label="Table views">
+                        <button type="button" class="table-tab active" role="tab" aria-selected="true" aria-controls="attributeTable" data-tab="features" tabindex="0">Traffic Data</button>
+                        <button type="button" class="table-tab" role="tab" aria-selected="false" aria-controls="attributeTable" data-tab="adt" tabindex="-1">ADT Counts</button>
+                    </div>
+                    <div id="tableSummaryText" aria-live="polite">Loading data...</div>
+                </div>
+                <div class="toolbar-actions">
+                    <button type="button" id="clearSelectionBtn" aria-label="Clear current selection" disabled>Clear Selection</button>
+                    <button type="button" id="resetFiltersBtn" aria-label="Reset all filters to defaults" disabled>Reset Filters</button>
+                </div>
+            </div>
             <!-- This div handles the scrolling -->
             <div id="featuresContentDiv">
                 <table class="attribute-table" id="attributeTable">
@@ -359,6 +478,7 @@
                 If features are selected (highlighted cyan on map), filters apply only to the selection. Otherwise,
                 filters apply globally.<br>
                 Clicking empty map space unselects all features. Filters hide non-matching features/data.
+                <div id="filterStatusSummary" aria-live="polite"></div>
             </div>
         </div>
 
@@ -388,6 +508,7 @@
             const ATTRIBUTE_TABLE_ID = "attributeTable";
             const LOADING_SPINNER_ID = "loadingSpinner";
             const FILTER_CONTROLS_ID = "filterControls";
+            const FILTER_STATUS_SUMMARY_ID = "filterStatusSummary";
             const DATA_TYPE_FILTER_ID = "dataTypeFilter";
             const YEAR_FILTER_ID = "yearFilter";
             const PERIOD_FILTER_ID = "periodFilter";
@@ -395,24 +516,46 @@
             const GENERATE_REPORT_BTN_ID = "generateReportBtn";
             const PRINT_MAP_BTN_ID = "printMapBtn";
             const REPORT_FORMAT_ID = "reportFormat";
+            const TABLE_SUMMARY_ID = "tableSummaryText";
+            const CLEAR_SELECTION_BTN_ID = "clearSelectionBtn";
+            const RESET_FILTERS_BTN_ID = "resetFiltersBtn";
+            const TABLE_TABS_ID = "tableTabs";
+            const TABLE_TAB_BUTTON_CLASS = "table-tab";
+            const TABLE_TAB_FEATURES = "features";
+            const TABLE_TAB_ADT = "adt";
+            const TABLE_TAB_ACTIVE_CLASS = "active";
+            const ADT_FIELD_CONFIG = [
+                { name: "ADT", alias: "ADT" },
+                { name: "Year", alias: "Year" },
+                { name: "join_key", alias: "join_key" }
+            ];
+            const MAX_ADT_REL_QUERY_BATCH = 500;
 
             // --- State Variables ---
             let map, view;
-            let allLayers = []; // Will hold FeatureLayers from the WebMap
-            let highlightHandles = {};
-            let allYears = new Set();
-            let streetList = [];
-            let currentDataType = "All";
-            let currentYears = [];
-            let currentPeriod = "All";
-            let currentStreet = "";
-            let selectedFeatures = [];
+let allLayers = []; // Will hold FeatureLayers from the WebMap
+let highlightHandles = {};
+let allYears = new Set();
+let streetList = [];
+let currentDataType = "All"; // Initialize with a simple default
+let currentYears = [];       // Initialize as an empty array
+let currentPeriod = "All";   // Initialize with a simple default
+let currentStreet = "";      // Initialize with a simple default
+let selectedFeatures = [];
             let filteredAndVisibleFeatures = [];
             let relatedDataCache = {};
             let currentTableHeaders = [];
             let currentTableData = [];
             let originalViewpoint = null;
             let streetFilterTimeout = null;
+            let currentTableTab = TABLE_TAB_FEATURES;
+            let adtLineLayer = null;
+            let adtRelationshipInfo = null;
+            let adtRelatedTableLayer = null;
+            let adtSelectedOids = new Set();
+            let adtAllParentOids = null;
+            let adtFieldInfos = null;
+            const ADT_REFERENCE_LAYER_TITLE = "Unique PEAK Traffic Count Intersections";
 
             // --- ArcGIS Modules ---
             require([
@@ -424,10 +567,11 @@
                 "esri/rest/support/RelationshipQuery",
                 "esri/layers/support/FeatureFilter",
                 "esri/geometry/Extent",
-                "esri/core/reactiveUtils"
+                "esri/core/reactiveUtils",
+                "esri/widgets/LayerList"
             ], function (
                 WebMap, MapView, FeatureLayer, Graphic, Query, RelationshipQuery, FeatureFilter, Extent,
-                reactiveUtils
+                reactiveUtils, LayerList
             ) {
 
                 // ===========================================================
@@ -441,6 +585,8 @@
                     const filterDiv = filterDivTemplate.cloneNode(true);
                     filterDiv.id = FILTER_DIV_ID;
                     filterDiv.style.display = 'block';
+                    const summaryNode = filterDiv.querySelector('#' + FILTER_STATUS_SUMMARY_ID);
+                    if (summaryNode) summaryNode.textContent = 'Loading data...';
                     view.ui.add(filterDiv, "top-right");
                     const reportingDiv = reportingDivTemplate.cloneNode(true);
                     reportingDiv.id = REPORTING_DIV_ID;
@@ -451,8 +597,8 @@
 
                 async function populateStreetList(spatialLayers) {
                     const streetSet = new Set();
-                    const hasMajor = spatialLayers.some(l => l.fields?.some(f => f.name === MAJOR_STREETS_FIELD));
-                    const hasMinor = spatialLayers.some(l => l.fields?.some(f => f.name === MINOR_STREETS_FIELD));
+                    const hasMajor = spatialLayers.some(l => l.fields && l.fields.some(f => f.name === MAJOR_STREETS_FIELD));
+                    const hasMinor = spatialLayers.some(l => l.fields && l.fields.some(f => f.name === MINOR_STREETS_FIELD));
                     const fieldsToQuery = [];
                     if (hasMajor) fieldsToQuery.push(MAJOR_STREETS_FIELD);
                     if (hasMinor) fieldsToQuery.push(MINOR_STREETS_FIELD);
@@ -473,7 +619,7 @@
                     });
 
                     const queryPromises = spatialLayers.map(layer => {
-                        const layerHasField = fieldsToQuery.some(fld => layer.fields?.some(f => f.name === fld));
+                        const layerHasField = fieldsToQuery.some(fld => layer.fields && layer.fields.some(f => f.name === fld));
                         if (!layerHasField) {
                             return Promise.resolve(); // Resolve immediately if layer lacks fields
                         }
@@ -499,9 +645,11 @@
                 }
 
                 async function populateYearsFromRelatedData(spatialLayer) {
-                    console.log(`Attempting to populate years from relationships of layer: ${spatialLayer?.title ?? 'undefined'}`);
+                    const layerTitle = spatialLayer && spatialLayer.title ? spatialLayer.title : 'undefined';
+                    const layerTitleSafe = spatialLayer && spatialLayer.title ? spatialLayer.title : 'N/A';
+                    console.log(`Attempting to populate years from relationships of layer: ${layerTitle}`);
                     if (!spatialLayer || !spatialLayer.relationships || spatialLayer.relationships.length === 0) {
-                        console.log(`Layer ${spatialLayer?.title ?? 'N/A'} has no relationships defined or is not valid.`);
+                        console.log(`Layer ${layerTitleSafe} has no relationships defined or is not valid.`);
                         return;
                     }
                     if (!YEAR_FIELD) {
@@ -546,7 +694,7 @@
                             const relatedTable = map.allTables.find(t => t.layerId === rel.relatedTableId) || map.allLayers.find(l => l.layerId === rel.relatedTableId);
                             if (relatedTable) {
                                 if (!relatedTable.loaded) await relatedTable.load();
-                                relatedTableHasYearField = relatedTable.fields?.some(f => f.name === YEAR_FIELD);
+                                relatedTableHasYearField = relatedTable.fields && relatedTable.fields.some(f => f.name === YEAR_FIELD);
                             } else {
                                 console.warn(`Could not find related table/layer with ID ${rel.relatedTableId} in the map.`);
                             }
@@ -570,7 +718,7 @@
                             spatialLayer.queryRelatedFeatures(relQuery)
                                 .then(relatedResults => {
                                     for (const parentOid in relatedResults) {
-                                        const relatedFeatures = relatedResults[parentOid]?.features ?? [];
+                                        const relatedFeatures = (relatedResults[parentOid] && relatedResults[parentOid].features) ? relatedResults[parentOid].features : [];
                                         relatedFeatures.forEach(relatedFeature => {
                                             if (relatedFeature.attributes && relatedFeature.attributes.hasOwnProperty(YEAR_FIELD)) {
                                                 const year = relatedFeature.attributes[YEAR_FIELD];
@@ -640,66 +788,279 @@
                     }
                 }
 
-                function addEventListeners() {
-                    const filterControls = document.getElementById(FILTER_CONTROLS_ID);
-                    const reportingControls = document.getElementById(REPORTING_DIV_ID);
-                    const attributeTableHead = document.getElementById(ATTRIBUTE_TABLE_ID)?.querySelector('thead');
+                function getTableTabButtons() {
+                    const tabsContainer = document.getElementById(TABLE_TABS_ID);
+                    if (!tabsContainer) return [];
+                    return Array.from(tabsContainer.querySelectorAll(`.${TABLE_TAB_BUTTON_CLASS}`));
+                }
 
-                    filterControls?.addEventListener('change', (event) => {
-                        if (event.target?.tagName === 'SELECT') {
-                            if (event.target.id === YEAR_FILTER_ID) {
-                                const selectElement = event.target;
-                                const selectedOptions = Array.from(selectElement.selectedOptions).map(opt => opt.value);
-                                const allOption = selectElement.querySelector('option[value="All"]');
-
-                                if (selectedOptions.includes("All") && selectedOptions.length > 1) {
-                                    selectElement.querySelectorAll('option:not([value="All"])').forEach(opt => opt.selected = false);
-                                    if (allOption) allOption.selected = true;
-                                } else if (!selectedOptions.includes("All") && selectedOptions.length > 0 && allOption?.selected) {
-                                    allOption.selected = false;
-                                } else if (selectedOptions.length === 0 && allOption) {
-                                    allOption.selected = true;
-                                }
-                            }
-                            applyFiltersAndDisplay();
-                        }
-                    });
-
-                    filterControls?.addEventListener('input', (event) => {
-                        if (event.target?.id === STREET_FILTER_ID) {
-                            clearTimeout(streetFilterTimeout);
-                            streetFilterTimeout = setTimeout(applyFiltersAndDisplay, STREET_FILTER_DEBOUNCE_MS);
-                        }
-                    });
-
-                    view.on("click", handleMapClick);
-
-                    reportingControls?.addEventListener('click', (event) => {
-                        if (event.target?.id === GENERATE_REPORT_BTN_ID) generateReport();
-                        else if (event.target?.id === PRINT_MAP_BTN_ID) exportMapAsPDF();
-                    });
-
-                    attributeTableHead?.addEventListener('click', (event) => {
-                        const headerCell = event.target.closest('th');
-                        if (headerCell) {
-                            const colIndex = Array.from(headerCell.parentNode.children).indexOf(headerCell);
-                            sortTable(document.getElementById(ATTRIBUTE_TABLE_ID), colIndex, headerCell);
-                        }
+                function updateTableTabButtons() {
+                    const tabButtons = getTableTabButtons();
+                    tabButtons.forEach(button => {
+                        const tabKey = button.dataset.tab;
+                        const isActive = tabKey === currentTableTab;
+                        button.classList.toggle(TABLE_TAB_ACTIVE_CLASS, isActive);
+                        button.setAttribute("aria-selected", isActive ? "true" : "false");
+                        button.setAttribute("tabindex", isActive ? "0" : "-1");
                     });
                 }
 
-                async function applyFiltersAndDisplay() {
-                    showLoadingSpinner();
-                    console.log("Applying filters...");
+                function setActiveTableTab(tabKey, options = {}) {
+                    if (!tabKey) return;
+                    if (tabKey === currentTableTab) {
+                        updateTableTabButtons();
+                        return;
+                    }
+                    currentTableTab = tabKey;
+                    updateTableTabButtons();
+                    if (!options.skipRefresh) {
+                        applyFiltersAndDisplay().catch(error => console.error("Error switching table tab:", error));
+                    }
+                }
 
+                function initializeTableTabs() {
+                    const tabButtons = getTableTabButtons();
+                    if (tabButtons.length === 0) {
+                        console.warn("Table tabs not found in DOM.");
+                        return;
+                    }
+                    tabButtons.forEach(button => {
+                        button.addEventListener("click", () => setActiveTableTab(button.dataset.tab));
+                    });
+                    updateTableTabButtons();
+                }
+
+                function collectionToArray(collection) {
+                    if (!collection) return [];
+                    if (typeof collection.toArray === "function") {
+                        return collection.toArray();
+                    }
+                    if (Array.isArray(collection)) {
+                        return collection;
+                    }
+                    return [];
+                }
+
+                function findRootLayerByTitle(title) {
+                    if (!map?.layers?.toArray) return null;
+                    const normalized = (title || "").trim().toLowerCase();
+                    return map.layers.toArray().find(layer => (layer?.title || "").trim().toLowerCase() === normalized) || null;
+                }
+
+                function findLayerByTitle(collection, title) {
+                    const normalized = (title || "").trim().toLowerCase();
+                    for (const layer of collectionToArray(collection)) {
+                        const layerTitle = (layer?.title || "").trim().toLowerCase();
+                        if (layerTitle === normalized) {
+                            return layer;
+                        }
+                        if (layer?.layers) {
+                            const childMatch = findLayerByTitle(layer.layers, title);
+                            if (childMatch) return childMatch;
+                        }
+                    }
+                    return null;
+                }
+
+                function reorderAdtLayerBelowReference(referenceLayer) {
+                    if (!adtLineLayer || !map?.layers?.toArray) return;
+                    const rootLayers = map.layers.toArray();
+                    const targetIndex = rootLayers.findIndex(layer => layer === referenceLayer);
+                    if (targetIndex >= 0) {
+                        map.reorder(adtLineLayer, targetIndex + 1);
+                    }
+                }
+
+                function tryReorderAdtLayer() {
+                    if (!adtLineLayer) return false;
+                    const referenceLayer = findRootLayerByTitle(ADT_REFERENCE_LAYER_TITLE);
+                    if (referenceLayer) {
+                        reorderAdtLayerBelowReference(referenceLayer);
+                        return true;
+                    }
+                    return false;
+                }
+
+                function addEventListeners() {
+                    const filterControls = document.getElementById(FILTER_CONTROLS_ID);
+                    const reportingControls = document.getElementById(REPORTING_DIV_ID);
+                    const attributeTableElement = document.getElementById(ATTRIBUTE_TABLE_ID);
+                    const attributeTableHead = attributeTableElement ? attributeTableElement.querySelector('thead') : null;
+
+                    if (filterControls) {
+                        filterControls.addEventListener('change', (event) => {
+                            const target = event.target;
+                            if (target && target.tagName === 'SELECT') {
+                                if (target.id === YEAR_FILTER_ID) {
+                                    const selectedOptions = Array.from(target.selectedOptions).map(opt => opt.value);
+                                    const allOption = target.querySelector('option[value="All"]');
+
+                                    if (selectedOptions.includes("All") && selectedOptions.length > 1) {
+                                        Array.from(target.querySelectorAll('option:not([value="All"])')).forEach(opt => opt.selected = false);
+                                        if (allOption) { allOption.selected = true; }
+                                    } else if (!selectedOptions.includes("All") && selectedOptions.length > 0 && allOption && allOption.selected) {
+                                        allOption.selected = false;
+                                    } else if (selectedOptions.length === 0 && allOption) {
+                                        allOption.selected = true;
+                                    }
+                                }
+                                applyFiltersAndDisplay();
+                            }
+                        });
+
+                        filterControls.addEventListener('input', (event) => {
+                            const target = event.target;
+                            if (target && target.id === STREET_FILTER_ID) {
+                                clearTimeout(streetFilterTimeout);
+                                streetFilterTimeout = setTimeout(applyFiltersAndDisplay, STREET_FILTER_DEBOUNCE_MS);
+                            }
+                        });
+                    }
+
+                    view.on("click", handleMapClick);
+
+                    if (reportingControls) {
+                        reportingControls.addEventListener('click', (event) => {
+                            const target = event.target;
+                            if (target && target.id === GENERATE_REPORT_BTN_ID) {
+                                generateReport();
+                            } else if (target && target.id === PRINT_MAP_BTN_ID) {
+                                exportMapAsPDF();
+                            }
+                        });
+                    }
+
+                    if (attributeTableHead) {
+                        attributeTableHead.addEventListener('click', (event) => {
+                            const headerCell = event.target.closest('th');
+                            if (headerCell) {
+                                const colIndex = Array.from(headerCell.parentNode.children).indexOf(headerCell);
+                                sortTable(document.getElementById(ATTRIBUTE_TABLE_ID), colIndex, headerCell);
+                            }
+                        });
+                    }
+
+                    const clearSelectionButtonEl = document.getElementById(CLEAR_SELECTION_BTN_ID);
+                    if (clearSelectionButtonEl) {
+                        clearSelectionButtonEl.addEventListener('click', () => {
+                            clearFeatureSelection();
+                        });
+                    }
+
+                    const resetFiltersButtonEl = document.getElementById(RESET_FILTERS_BTN_ID);
+                    if (resetFiltersButtonEl) {
+                        resetFiltersButtonEl.addEventListener('click', () => {
+                            resetFiltersToDefaults();
+                        });
+                    }
+                }
+
+                function updateFilterStatusSummary(totalConsidered, totalDisplayed, selectionCount, isFilteringSelection) {
+                    const summaryNodes = document.querySelectorAll('#' + FILTER_STATUS_SUMMARY_ID);
+                    const tableSummaryNode = document.getElementById(TABLE_SUMMARY_ID);
+                    if (summaryNodes.length === 0 && !tableSummaryNode) {
+                        return;
+                    }
+
+                    const isAdtMode = currentTableTab === TABLE_TAB_ADT;
+                    const normalizedTotalConsidered = Number.isFinite(totalConsidered) && totalConsidered >= 0 ? totalConsidered : 0;
+                    const normalizedTotalDisplayed = Number.isFinite(totalDisplayed) && totalDisplayed >= 0 ? totalDisplayed : 0;
+
+                    let baseText;
+                    if (isAdtMode) {
+                        if (normalizedTotalConsidered > 0) {
+                            baseText = `${normalizedTotalDisplayed.toLocaleString()} ADT record${normalizedTotalDisplayed === 1 ? '' : 's'} displayed from ${normalizedTotalConsidered.toLocaleString()} line${normalizedTotalConsidered === 1 ? '' : 's'}.`;
+                        } else {
+                            baseText = "No ADT data is currently available for the selected filters.";
+                        }
+                    } else {
+                        const consideredLabel = isFilteringSelection ? "selected feature(s)" : "visible feature(s)";
+                        if (normalizedTotalConsidered > 0) {
+                            baseText = `${normalizedTotalDisplayed.toLocaleString()} of ${normalizedTotalConsidered.toLocaleString()} ${consideredLabel} match current filters.`;
+                        } else {
+                            baseText = "No map features are currently available for the selected filters.";
+                        }
+                    }
+
+                    let selectionText;
+                    if (isAdtMode) {
+                        selectionText = adtSelectedOids.size > 0
+                            ? `${adtSelectedOids.size.toLocaleString()} ADT line${adtSelectedOids.size === 1 ? '' : 's'} selected.`
+                            : "No ADT selection active.";
+                    } else if (selectedFeatures.length > 0) {
+                        selectionText = `${selectedFeatures.length.toLocaleString()} feature${selectedFeatures.length === 1 ? '' : 's'} selected.`;
+                    } else if (adtSelectedOids.size > 0) {
+                        selectionText = `${adtSelectedOids.size.toLocaleString()} ADT line${adtSelectedOids.size === 1 ? '' : 's'} selected.`;
+                    } else {
+                        selectionText = "No selection active.";
+                    }
+
+                    const filterParts = [];
+                    if (isAdtMode) {
+                        if (currentYears.length > 0) filterParts.push(`Year=${currentYears.join(', ')}`);
+                    } else {
+                        if (currentDataType !== "All") filterParts.push(`Type=${currentDataType}`);
+                        if (currentYears.length > 0) filterParts.push(`Year=${currentYears.join(', ')}`);
+                        if (currentPeriod !== "All") filterParts.push(`Period=${currentPeriod}`);
+                        if (currentStreet) filterParts.push(`Street contains "${currentStreet}"`);
+                    }
+                    const filtersDescription = filterParts.length > 0 ? `Active filters: ${filterParts.join('; ')}.` : "Active filters: none.";
+
+                    const clearSelectionButton = document.getElementById(CLEAR_SELECTION_BTN_ID);
+                    if (clearSelectionButton) {
+                        clearSelectionButton.disabled = (selectedFeatures.length + adtSelectedOids.size) === 0;
+                    }
+                    const resetFiltersButton = document.getElementById(RESET_FILTERS_BTN_ID);
+                    if (resetFiltersButton) {
+                        const hasActiveFilter = currentDataType !== "All" || currentYears.length > 0 || currentPeriod !== "All" || currentStreet;
+                        resetFiltersButton.disabled = !hasActiveFilter;
+                    }
+
+                    const baseMessage = `${baseText} ${selectionText}`.trim();
+                    if (summaryNodes.length > 0) {
+                        summaryNodes.forEach(node => {
+                            node.textContent = `${baseMessage} ${filtersDescription}`.trim();
+                        });
+                    }
+                    if (tableSummaryNode) {
+                        tableSummaryNode.textContent = baseMessage;
+                        tableSummaryNode.setAttribute('title', filtersDescription);
+                    }
+                }
+                function resetFiltersToDefaults() {
+                    const dataTypeSelect = document.getElementById(DATA_TYPE_FILTER_ID);
+                    if (dataTypeSelect) dataTypeSelect.value = "All";
+                    const yearSelect = document.getElementById(YEAR_FILTER_ID);
+                    if (yearSelect) {
+                        Array.from(yearSelect.options).forEach(option => option.selected = option.value === "All");
+                    }
+                    const periodSelect = document.getElementById(PERIOD_FILTER_ID);
+                    if (periodSelect) periodSelect.value = "All";
+                    const streetInput = document.getElementById(STREET_FILTER_ID);
+                    if (streetInput) streetInput.value = "";
+                    clearTimeout(streetFilterTimeout);
+                    applyFiltersAndDisplay().catch(error => console.error("Error resetting filters:", error));
+                }
+
+                function clearFeatureSelection() {
+                    const hadSelection = selectedFeatures.length > 0 || adtSelectedOids.size > 0;
+                    if (!hadSelection) {
+                        return;
+                    }
+                    selectedFeatures = [];
+                    adtSelectedOids.clear();
+                    clearAllHighlights();
+                    applyFiltersAndDisplay().catch(error => console.error("Error clearing selection:", error));
+                }
+                function readFilterControlValues() {
                     const dataTypeSelect = document.getElementById(DATA_TYPE_FILTER_ID);
                     const yearSelect = document.getElementById(YEAR_FILTER_ID);
                     const periodSelect = document.getElementById(PERIOD_FILTER_ID);
                     const streetInput = document.getElementById(STREET_FILTER_ID);
 
-                    currentDataType = dataTypeSelect?.value ?? "All";
-                    currentPeriod = periodSelect?.value ?? "All";
-                    currentStreet = streetInput?.value.trim() ?? "";
+                    currentDataType = (dataTypeSelect && dataTypeSelect.value) ? dataTypeSelect.value : "All";
+                    currentPeriod = (periodSelect && periodSelect.value) ? periodSelect.value : "All";
+                    currentStreet = streetInput && typeof streetInput.value === "string" ? streetInput.value.trim() : "";
 
                     currentYears = yearSelect ? Array.from(yearSelect.selectedOptions).map(opt => opt.value) : [];
                     if (currentYears.includes("All") || currentYears.length === 0) {
@@ -707,12 +1068,31 @@
                     } else {
                         currentYears = currentYears.filter(y => y !== "All");
                     }
+                }
 
+                async function applyFiltersAndDisplay() {
+                    showLoadingSpinner();
+                    console.log("Applying filters...");
+                    try {
+                        readFilterControlValues();
+                        if (currentTableTab === TABLE_TAB_ADT) {
+                            await refreshAdtTable();
+                        } else {
+                            await refreshFeatureTable();
+                        }
+                    } catch (error) {
+                        console.error("Error applying filters:", error);
+                    } finally {
+                        hideLoadingSpinner();
+                    }
+                }
+
+                async function refreshFeatureTable() {
                     const escapedStreet = currentStreet.replace(/'/g, "''");
                     let definitionExpression = "1=1";
                     if (currentStreet && MAJOR_STREETS_FIELD && MINOR_STREETS_FIELD) {
-                        const hasMajor = allLayers.some(l => l.fields?.some(f => f.name === MAJOR_STREETS_FIELD));
-                        const hasMinor = allLayers.some(l => l.fields?.some(f => f.name === MINOR_STREETS_FIELD));
+                        const hasMajor = allLayers.some(l => l.fields && l.fields.some(f => f.name === MAJOR_STREETS_FIELD));
+                        const hasMinor = allLayers.some(l => l.fields && l.fields.some(f => f.name === MINOR_STREETS_FIELD));
                         const conditions = [];
                         if (hasMajor) conditions.push(`${MAJOR_STREETS_FIELD} LIKE '%${escapedStreet}%'`);
                         if (hasMinor) conditions.push(`${MINOR_STREETS_FIELD} LIKE '%${escapedStreet}%'`);
@@ -741,7 +1121,247 @@
                     filteredAndVisibleFeatures = clientSideFilterFeatures(baseFeaturesToFilter, relatedDataCache, currentYears, currentPeriod, currentDataType);
                     await updateMapViewBasedOnFilters(isFilteringSelection, filteredAndVisibleFeatures);
                     displayAttributes(filteredAndVisibleFeatures, relatedDataCache);
-                    hideLoadingSpinner();
+                    if (adtLineLayer && adtSelectedOids.size > 0) {
+                        try {
+                            const lv = await view.whenLayerView(adtLineLayer);
+                            if (lv) {
+                                if (highlightHandles[adtLineLayer.id]) {
+                                    highlightHandles[adtLineLayer.id].remove();
+                                }
+                                highlightHandles[adtLineLayer.id] = lv.highlight(Array.from(adtSelectedOids));
+                            }
+                        } catch (error) {
+                            console.warn("Highlight error for ADT layer:", error);
+                        }
+                    }
+
+                    const effectiveSelectionCount = selectedFeatures.length + adtSelectedOids.size;
+                    updateFilterStatusSummary(baseFeaturesToFilter.length, filteredAndVisibleFeatures.length, effectiveSelectionCount, isFilteringSelection);
+                }
+
+                function buildAdtYearWhereClause(years) {
+                    if (!years || years.length === 0) return null;
+                    const sanitized = years
+                        .map(year => String(year).trim())
+                        .filter(Boolean)
+                        .map(val => `'${val.replace(/'/g, "''")}'`);
+                    if (sanitized.length === 0) return null;
+                    return `${YEAR_FIELD} IN (${sanitized.join(",")})`;
+                }
+
+                async function ensureAdtRelatedTableLayer() {
+                    if (adtRelatedTableLayer) {
+                        if (!adtRelatedTableLayer.loaded) await adtRelatedTableLayer.load();
+                        return adtRelatedTableLayer;
+                    }
+                    if (!adtLineLayer || !adtRelationshipInfo) return null;
+
+                    let relatedTable = null;
+                    if (map && map.allTables) {
+                        relatedTable = map.allTables.find(tbl => tbl.layerId === adtRelationshipInfo.relatedTableId);
+                    }
+                    if (!relatedTable && map && map.allLayers) {
+                        relatedTable = map.allLayers.find(layer => layer.layerId === adtRelationshipInfo.relatedTableId);
+                    }
+
+                    if (relatedTable) {
+                        adtRelatedTableLayer = relatedTable;
+                    } else if (adtLineLayer.url) {
+                        const baseUrl = adtLineLayer.url.replace(/\/\d+$/, "");
+                        const tableUrl = `${baseUrl}/${adtRelationshipInfo.relatedTableId}`;
+                        adtRelatedTableLayer = new FeatureLayer({
+                            url: tableUrl,
+                            outFields: ["*"]
+                        });
+                    }
+
+                    if (adtRelatedTableLayer && !adtRelatedTableLayer.loaded) {
+                        await adtRelatedTableLayer.load();
+                    }
+                    adtFieldInfos = null;
+                    return adtRelatedTableLayer;
+                }
+
+                async function getAllAdtParentOids() {
+                    if (adtAllParentOids && adtAllParentOids.length > 0) {
+                        return adtAllParentOids;
+                    }
+                    if (!adtLineLayer || !adtLineLayer.objectIdField) return [];
+                    try {
+                        const query = adtLineLayer.createQuery();
+                        query.where = adtLineLayer.definitionExpression || "1=1";
+                        const objectIds = await adtLineLayer.queryObjectIds(query);
+                        adtAllParentOids = Array.isArray(objectIds) ? objectIds : [];
+                        return adtAllParentOids;
+                    } catch (error) {
+                        console.warn("Error querying ADT parent object IDs:", error);
+                        return [];
+                    }
+                }
+
+                async function queryAdtRelatedRecords(parentOids, whereClause) {
+                    if (!adtLineLayer || !adtRelationshipInfo) return [];
+                    if (!parentOids || parentOids.length === 0) return [];
+
+                    const records = [];
+                    for (let i = 0; i < parentOids.length; i += MAX_ADT_REL_QUERY_BATCH) {
+                        const chunk = parentOids.slice(i, i + MAX_ADT_REL_QUERY_BATCH);
+                        const relQuery = new RelationshipQuery({
+                            relationshipId: adtRelationshipInfo.id,
+                            objectIds: chunk,
+                            outFields: ["*"],
+                            returnGeometry: false
+                        });
+                        if (whereClause) relQuery.where = whereClause;
+                        try {
+                            const response = await adtLineLayer.queryRelatedFeatures(relQuery);
+                            Object.entries(response).forEach(([parentOid, data]) => {
+                                const features = data && data.features ? data.features : [];
+                                features.forEach(feature => {
+                                    if (feature && feature.attributes) {
+                                        records.push({
+                                            parentObjectId: Number(parentOid),
+                                            attributes: feature.attributes
+                                        });
+                                    }
+                                });
+                            });
+                        } catch (error) {
+                            console.warn("Error querying ADT related data:", error);
+                        }
+                    }
+                    return records;
+                }
+
+                function displayAdtRecords(records) {
+                    const attributeTable = document.getElementById(ATTRIBUTE_TABLE_ID);
+                    const thead = attributeTable ? attributeTable.querySelector("thead") : null;
+                    const tbody = attributeTable ? attributeTable.querySelector("tbody") : null;
+                    if (!attributeTable || !thead || !tbody) return;
+
+                    thead.innerHTML = "";
+                    tbody.innerHTML = "";
+                    currentTableHeaders = [];
+                    currentTableData = [];
+
+                    if (!records || records.length === 0) {
+                        tbody.innerHTML = `<tr class="no-features-row"><td colspan="1">No ADT count records match the current filters.</td></tr>`;
+                        return;
+                    }
+
+                    const tableLayer = adtRelatedTableLayer;
+                    const fieldLookup = new Map();
+                    if (tableLayer && tableLayer.fields) {
+                        tableLayer.fields.forEach(field => fieldLookup.set(field.name.toLowerCase(), field));
+                    } else {
+                        console.warn("ADT related table metadata was unavailable; using configured column definitions.");
+                    }
+                    const columnInfos = ADT_FIELD_CONFIG.map(config => {
+                        const matchedField = fieldLookup.get(config.name.toLowerCase());
+                        if (!matchedField) {
+                            console.warn(`ADT related table is missing expected field '${config.name}'.`);
+                        }
+                        return {
+                            name: matchedField ? matchedField.name : config.name,
+                            alias: config.alias || (matchedField ? (matchedField.alias || matchedField.name) : config.name),
+                            type: matchedField ? matchedField.type || "" : ""
+                        };
+                    });
+                    adtFieldInfos = columnInfos;
+                    currentTableHeaders = columnInfos.map(info => info.alias);
+
+                    const headerRow = document.createElement("tr");
+                    columnInfos.forEach(info => {
+                        const th = document.createElement("th");
+                        th.title = `Sort by ${info.alias}`;
+                        th.textContent = info.alias;
+                        const span = document.createElement("span");
+                        span.className = 'sort-indicator';
+                        span.textContent = ' \u21C5';
+                        th.appendChild(span);
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+
+                    records.forEach(record => {
+                        const row = document.createElement("tr");
+                        const rowData = {};
+
+                        columnInfos.forEach(info => {
+                            let value = record.attributes ? record.attributes[info.name] : null;
+                            if (value === null || value === undefined) {
+                                value = '';
+                            } else if ((info.type === "date" || info.type === "esriFieldTypeDate")) {
+                                const dateVal = value instanceof Date ? value : new Date(value);
+                                value = isNaN(dateVal.getTime()) ? '' : dateVal.toLocaleDateString();
+                            } else if (value && typeof value === "object" && typeof value.toISOString === "function") {
+                                value = value.toISOString();
+                            } else if (typeof value === "number" && !Number.isInteger(value)) {
+                                value = value.toFixed(2);
+                            }
+                            const valueStr = value === '' ? '' : String(value);
+                            rowData[info.alias] = valueStr;
+                            const cell = document.createElement("td");
+                            cell.textContent = valueStr;
+                            row.appendChild(cell);
+                        });
+
+                        tbody.appendChild(row);
+                        currentTableData.push(rowData);
+                    });
+
+                    const noDataCell = tbody.querySelector('.no-features-row td');
+                    if (noDataCell) {
+                        noDataCell.colSpan = currentTableHeaders.length || 1;
+                    }
+                }
+
+                async function refreshAdtTable() {
+                    if (!adtLineLayer) {
+                        displayAdtRecords([]);
+                        updateFilterStatusSummary(0, 0, selectedFeatures.length + adtSelectedOids.size, adtSelectedOids.size > 0);
+                        return;
+                    }
+
+                    const adtTableLayer = await ensureAdtRelatedTableLayer();
+                    if (!adtTableLayer) {
+                        displayAdtRecords([]);
+                        updateFilterStatusSummary(0, 0, selectedFeatures.length + adtSelectedOids.size, adtSelectedOids.size > 0);
+                        return;
+                    }
+
+                    const parentOids = adtSelectedOids.size > 0 ? Array.from(adtSelectedOids) : await getAllAdtParentOids();
+                    if (!parentOids || parentOids.length === 0) {
+                        displayAdtRecords([]);
+                        updateFilterStatusSummary(0, 0, selectedFeatures.length + adtSelectedOids.size, adtSelectedOids.size > 0);
+                        return;
+                    }
+
+                    const whereClause = buildAdtYearWhereClause(currentYears);
+                    const records = await queryAdtRelatedRecords(parentOids, whereClause);
+                    displayAdtRecords(records);
+                    if (adtLineLayer) {
+                        try {
+                            const lv = await view.whenLayerView(adtLineLayer);
+                            if (lv) {
+                                if (highlightHandles[adtLineLayer.id]) {
+                                    highlightHandles[adtLineLayer.id].remove();
+                                }
+                                if (adtSelectedOids.size > 0) {
+                                    highlightHandles[adtLineLayer.id] = lv.highlight(Array.from(adtSelectedOids));
+                                }
+                            }
+                        } catch (error) {
+                            console.warn("Highlight error for ADT selection:", error);
+                        }
+                    }
+
+                    filteredAndVisibleFeatures = [];
+                    relatedDataCache = {};
+
+                    const effectiveSelectionCount = selectedFeatures.length + adtSelectedOids.size;
+                    const isFilteringSelection = adtSelectedOids.size > 0;
+                    updateFilterStatusSummary(parentOids.length, records.length, effectiveSelectionCount, isFilteringSelection);
                 }
 
                 function clientSideFilterFeatures(features, relatedDataMap, filterYears, filterPeriod, filterDataType) {
@@ -750,7 +1370,7 @@
                     }
 
                     return features.filter(f => {
-                        const oidField = f.layer?.objectIdField;
+                        const oidField = f.layer ? f.layer.objectIdField : null;
                         if (!oidField) return false;
                         const oid = f.attributes[oidField];
                         const relatedRecs = relatedDataMap[oid] || [];
@@ -778,7 +1398,7 @@
                     if (filterDataType !== "All" && (!attrs.hasOwnProperty(DATA_TYPE_FIELD) || attrs[DATA_TYPE_FIELD] !== filterDataType)) {
                         return false;
                     }
-                    if (filterYears.length > 0 && (!attrs.hasOwnProperty(YEAR_FIELD) || !filterYears.includes(String(attrs[YEAR_FIELD] ?? '')))) {
+                    if (filterYears.length > 0 && (!attrs.hasOwnProperty(YEAR_FIELD) || !filterYears.includes(String((attrs[YEAR_FIELD] !== undefined && attrs[YEAR_FIELD] !== null) ? attrs[YEAR_FIELD] : '')))) {
                         return false;
                     }
                     if (filterPeriod !== "All" && (!attrs.hasOwnProperty(PERIOD_FIELD) || attrs[PERIOD_FIELD] !== filterPeriod)) {
@@ -821,7 +1441,7 @@
                             try {
                                 const result = await layer.queryRelatedFeatures(relQuery);
                                 for (const parentOId in result) {
-                                    const relatedFeatures = result[parentOId]?.features ?? [];
+                                    const relatedFeatures = (result[parentOId] && result[parentOId].features) ? result[parentOId].features : [];
                                     if (relatedFeatures.length > 0) {
                                         const numericParentOid = Number(parentOId);
                                         if (!relatedDataMap[numericParentOid]) relatedDataMap[numericParentOid] = [];
@@ -882,7 +1502,7 @@
                 }
 
                 function clearAllHighlights() {
-                    Object.values(highlightHandles).forEach(handle => handle?.remove());
+                    Object.values(highlightHandles).forEach(handle => handle && handle.remove && handle.remove());
                     highlightHandles = {};
                 }
 
@@ -920,8 +1540,8 @@
 
                 function displayAttributes(features, relatedDataMap) {
                     const attributeTable = document.getElementById(ATTRIBUTE_TABLE_ID);
-                    const thead = attributeTable?.querySelector("thead");
-                    const tbody = attributeTable?.querySelector("tbody");
+                    const thead = attributeTable ? attributeTable.querySelector("thead") : null;
+                    const tbody = attributeTable ? attributeTable.querySelector("tbody") : null;
                     if (!attributeTable || !thead || !tbody) return;
 
                     thead.innerHTML = "";
@@ -939,14 +1559,15 @@
                     const columnValues = {};
 
                     features.forEach(f => {
-                        const oidField = f.layer?.objectIdField;
+                        const oidField = f.layer ? f.layer.objectIdField : null;
                         if (!oidField) return;
                         const oid = f.attributes[oidField];
                         const related = relatedDataMap[oid] || [];
 
                         const matchingRelated = related.filter(rec => doesRecordMatchFilters(rec, currentYears, currentPeriod, currentDataType));
                         const mainMatches = doesRecordMatchFilters(f.attributes, currentYears, currentPeriod, currentDataType);
-                        const mainCanMatchFilters = (currentDataType === "All" || (f.attributes && f.attributes.hasOwnProperty(DATA_TYPE_FIELD))) &&
+                        const mainCanMatchFilters =
+                            (currentDataType === "All" || (f.attributes && f.attributes.hasOwnProperty(DATA_TYPE_FIELD))) &&
                             (currentYears.length === 0 || (f.attributes && f.attributes.hasOwnProperty(YEAR_FIELD))) &&
                             (currentPeriod === "All" || (f.attributes && f.attributes.hasOwnProperty(PERIOD_FIELD)));
 
@@ -957,7 +1578,7 @@
                                 Object.keys(rowData).forEach(attr => {
                                     headersSet.add(attr);
                                     if (!columnValues[attr]) columnValues[attr] = new Set();
-                                    columnValues[attr].add(rowData[attr] ?? null);
+                                    columnValues[attr].add((rowData[attr] !== undefined && rowData[attr] !== null) ? rowData[attr] : null);
                                 });
                             });
                         } else if (mainMatches && mainCanMatchFilters) {
@@ -966,7 +1587,7 @@
                             Object.keys(rowData).forEach(attr => {
                                 headersSet.add(attr);
                                 if (!columnValues[attr]) columnValues[attr] = new Set();
-                                columnValues[attr].add(rowData[attr] ?? null);
+                                columnValues[attr].add((rowData[attr] !== undefined && rowData[attr] !== null) ? rowData[attr] : null);
                             });
                         }
                     });
@@ -1042,7 +1663,7 @@
                         th.textContent = headerText;
                         const span = document.createElement('span');
                         span.className = 'sort-indicator';
-                        span.textContent = ' ⇅';
+                        span.textContent = ' \\u21C5';
                         th.appendChild(span);
                         headerRow.appendChild(th);
                     });
@@ -1052,7 +1673,7 @@
                         const row = document.createElement("tr");
                         headersToDisplay.forEach(header => {
                             const cell = document.createElement("td");
-                            let displayValue = rowData[header] ?? '';
+                            let displayValue = (rowData[header] !== undefined && rowData[header] !== null) ? rowData[header] : '';
                             if (typeof displayValue === 'number' && !Number.isInteger(displayValue)) {
                                 displayValue = displayValue.toFixed(2);
                             }
@@ -1065,23 +1686,32 @@
 
                 function handleMapClick(event) {
                     view.hitTest(event).then(response => {
-                        const result = response.results?.find(r =>
-                            r.graphic?.layer?.type === "feature" &&
+                        const hitResults = response && response.results ? response.results : [];
+                        const featureResult = hitResults.find(r =>
+                            r.graphic && r.graphic.layer && r.graphic.layer.type === "feature" &&
                             allLayers.some(opLayer => opLayer.id === r.graphic.layer.id)
                         );
-                        if (result) {
-                            toggleFeatureSelection(result.graphic);
-                        } else {
-                            if (selectedFeatures.length > 0) {
-                                selectedFeatures = [];
-                                applyFiltersAndDisplay();
-                            }
+                        if (featureResult) {
+                            toggleFeatureSelection(featureResult.graphic);
+                            return;
+                        }
+                        const adtResult = hitResults.find(r =>
+                            adtLineLayer && r.graphic && r.graphic.layer && r.graphic.layer.id === adtLineLayer.id
+                        );
+                        if (adtResult) {
+                            toggleAdtFeatureSelection(adtResult.graphic);
+                            return;
+                        }
+                        if (selectedFeatures.length > 0 || adtSelectedOids.size > 0) {
+                            selectedFeatures = [];
+                            adtSelectedOids.clear();
+                            applyFiltersAndDisplay().catch(error => console.error("Error clearing selection on map click:", error));
                         }
                     }).catch(error => console.error("HitTest error:", error));
                 }
 
                 function toggleFeatureSelection(feature) {
-                    if (!feature?.layer || !feature.layer.objectIdField) return;
+                    if (!feature || !feature.layer || !feature.layer.objectIdField) return;
                     const oidField = feature.layer.objectIdField;
                     const oid = feature.attributes[oidField];
                     const layerId = feature.layer.id;
@@ -1092,11 +1722,32 @@
                     } else {
                         selectedFeatures.push(feature);
                     }
-                    applyFiltersAndDisplay();
+                    applyFiltersAndDisplay().catch(error => console.error("Error updating selection:", error));
+                }
+
+                function toggleAdtFeatureSelection(feature) {
+                    if (!feature || !adtLineLayer || feature.layer.id !== adtLineLayer.id || !adtLineLayer.objectIdField) {
+                        return;
+                    }
+                    const rawOid = feature.attributes ? feature.attributes[adtLineLayer.objectIdField] : null;
+                    if (rawOid === null || rawOid === undefined) {
+                        return;
+                    }
+                    const numericOid = typeof rawOid === "number" ? rawOid : Number(rawOid);
+                    if (!Number.isFinite(numericOid)) {
+                        return;
+                    }
+                    if (adtSelectedOids.has(numericOid)) {
+                        adtSelectedOids.delete(numericOid);
+                    } else {
+                        adtSelectedOids.add(numericOid);
+                    }
+                    setActiveTableTab(TABLE_TAB_ADT, { skipRefresh: true });
+                    applyFiltersAndDisplay().catch(error => console.error("Error applying ADT selection:", error));
                 }
 
                 function sortTable(table, colIndex, headerCell) {
-                    const tbody = table?.tBodies[0];
+                    const tbody = table && table.tBodies ? table.tBodies[0] : null;
                     if (!tbody || !headerCell || colIndex < 0 || colIndex >= headerCell.parentNode.children.length) return;
 
                     const rows = Array.from(tbody.rows);
@@ -1105,8 +1756,8 @@
                     const isAsc = newDirection === 'asc';
 
                     rows.sort((a, b) => {
-                        const aText = a.cells[colIndex]?.textContent.trim() || '';
-                        const bText = b.cells[colIndex]?.textContent.trim() || '';
+                        const aText = a.cells[colIndex] ? a.cells[colIndex].textContent : "".trim() || '';
+                        const bText = b.cells[colIndex] ? b.cells[colIndex].textContent : "".trim() || '';
                         if (aText === '') return 1;
                         if (bText === '') return -1;
                         const aNum = Number(aText.replace(/,/g, ''));
@@ -1125,15 +1776,15 @@
                 }
 
                 function updateSortIndicators(table, sortedColIndex, direction) {
-                    const headers = table?.tHead?.rows[0]?.cells;
+                    const headers = table && table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells : null;
                     if (!headers) return;
                     for (let i = 0; i < headers.length; i++) {
                         const indicator = headers[i].querySelector(".sort-indicator");
                         if (indicator) {
                             if (i === sortedColIndex) {
-                                indicator.textContent = direction === 'asc' ? ' ↑' : ' ↓';
+                                indicator.textContent = direction === 'asc' ? ' \\u25B2' : ' \\u25BC';
                             } else {
-                                indicator.textContent = ' ⇅';
+                                indicator.textContent = ' \\u21C5';
                                 headers[i].dataset.sort = 'none';
                             }
                         }
@@ -1141,7 +1792,7 @@
                 }
 
                 function generatePDFReport() {
-                    if (!window.jspdf || (!window.jspdf.autoTable && (!window.jspdf.jsPDF?.API?.autoTable))) {
+                    if (!window.jspdf || (!window.jspdf.autoTable && (!(window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)))) {
                         alert("PDF generation library not loaded correctly. Please check console.");
                         return;
                     }
@@ -1153,16 +1804,20 @@
 
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+                    const isAdtMode = currentTableTab === TABLE_TAB_ADT;
 
                     doc.setFontSize(18);
-                    doc.text("Traffic Analytics Report", 40, 50);
+                    doc.text(isAdtMode ? "ADT Counts Report" : "Traffic Analytics Report", 40, 50);
                     doc.setFontSize(10);
                     doc.setTextColor(100);
                     doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 65);
-                    doc.text(`Filters: Type=${currentDataType}, Year(s)=${currentYears.join(',') || 'All'}, Period=${currentPeriod}, Street=${currentStreet || 'None'}`, 40, 78);
+                    const filterSummary = isAdtMode
+                        ? `Filters: Year(s)=${currentYears.join(',') || 'All'}`
+                        : `Filters: Type=${currentDataType}, Year(s)=${currentYears.join(',') || 'All'}, Period=${currentPeriod}, Street=${currentStreet || 'None'}`;
+                    doc.text(filterSummary, 40, 78);
 
                     const head = [currentTableHeaders];
-                    const body = currentTableData.map(row => currentTableHeaders.map(header => String(row[header] ?? '')));
+                    const body = currentTableData.map(row => currentTableHeaders.map(header => String((row[header] !== undefined && row[header] !== null) ? row[header] : '')));
 
                     doc.autoTable({
                         head: head,
@@ -1175,7 +1830,7 @@
                         didDrawPage: (data) => doc.text('Page ' + doc.internal.getNumberOfPages(), data.settings.margin.left, doc.internal.pageSize.height - 15)
                     });
 
-                    doc.save("traffic_analytics_report.pdf");
+                    doc.save(isAdtMode ? "adt_counts_report.pdf" : "traffic_analytics_report.pdf");
                 }
 
                 function generateCSVReport() {
@@ -1184,7 +1839,7 @@
                         return;
                     }
                     const escapeCSV = (val) => {
-                        const str = String(val ?? '');
+                        const str = String((val !== undefined && val !== null) ? val : '');
                         return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
                     };
                     let csv = currentTableHeaders.map(escapeCSV).join(",") + "\n";
@@ -1192,16 +1847,17 @@
                         csv += currentTableHeaders.map(h => escapeCSV(row[h])).join(",") + "\n";
                     });
                     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                    const blobUrl = URL.createObjectURL(blob);
                     const link = document.createElement("a");
-                    link.href = URL.createObjectURL(blob);
-                    link.download = "traffic_analytics_report.csv";
+                    link.href = blobUrl;
+                    link.download = currentTableTab === TABLE_TAB_ADT ? "adt_counts_report.csv" : "traffic_analytics_report.csv";
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
                 }
-
                 function generateReport() {
-                    const format = document.getElementById(REPORT_FORMAT_ID)?.value ?? 'pdf';
+                    const format = (function(){ const el = document.getElementById(REPORT_FORMAT_ID); return el && el.value ? el.value : 'pdf'; })();
                     if (format === "pdf") generatePDFReport();
                     else if (format === "csv") generateCSVReport();
                 }
@@ -1213,7 +1869,7 @@
                         let targetExtent = null;
                         if (selectedFeatures.length > 0) {
                             selectedFeatures.forEach(f => {
-                                const featExtent = f.geometry?.extent;
+                                const featExtent = f.geometry ? f.geometry.extent : null;
                                 if (featExtent) {
                                     if (!targetExtent) targetExtent = featExtent.clone();
                                     else targetExtent = targetExtent.union(featExtent);
@@ -1276,16 +1932,83 @@
                             map: map,
                             highlightOptions: { color: [0, 255, 255, 1], haloOpacity: 0.9, fillOpacity: 0.3 }
                         });
+                        view.popup.autoOpenEnabled = false;
+                        view.popup.defaultPopupTemplateEnabled = false;
                         await view.when();
                         await map.load();
 
                         if (map.loadStatus === 'failed') {
-                            throw new Error(map.loadError?.message || 'Unknown WebMap loading error');
+                            throw new Error(map.loadError && map.loadError.message || 'Unknown WebMap loading error');
+                        }
+
+                        const layerListWidget = new LayerList({ view });
+                        view.ui.add(layerListWidget, "top-left");
+
+                        adtLineLayer = new FeatureLayer({
+                            url: "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/ADT_Counts_WFL1/FeatureServer/0",
+                            title: "Average Daily Traffic Counts",
+                            outFields: ["*"],
+                            renderer: {
+                                type: "simple",
+                                symbol: {
+                                    type: "simple-line",
+                                    style: "solid",
+                                    color: [255, 140, 0, 1],
+                                    width: 1.5,
+                                    cap: "round",
+                                    join: "round"
+                                }
+                            },
+                            labelingInfo: [{
+                                labelPlacement: "center-along-line",
+                                labelExpressionInfo: { expression: "Text($feature.ADT)" },
+                                symbol: {
+                                    type: "text",
+                                    color: [80, 80, 80, 1],
+                                    haloColor: [255, 255, 255, 1],
+                                    haloSize: 1.5,
+                                    font: {
+                                        size: 8,
+                                        family: "Arial",
+                                        weight: "bold"
+                                    }
+                                }
+                            }],
+                            labelsVisible: true
+                        });
+                        adtLineLayer.appExcludeFromFilters = true;
+                        map.add(adtLineLayer);
+                        const layerChangeHandle = map.layers.on("change", () => {
+                            if (tryReorderAdtLayer()) {
+                                layerChangeHandle.remove();
+                            }
+                        });
+                        if (!tryReorderAdtLayer()) {
+                            reactiveUtils.when(() => !!findRootLayerByTitle(ADT_REFERENCE_LAYER_TITLE), () => {
+                                if (tryReorderAdtLayer()) {
+                                    layerChangeHandle.remove();
+                                }
+                            }, { once: true });
+                        } else {
+                            layerChangeHandle.remove();
+                        }
+                        await adtLineLayer.when();
+                        adtSelectedOids.clear();
+                        adtAllParentOids = null;
+                        adtRelationshipInfo = (adtLineLayer.relationships || []).find(rel => {
+                            const relName = (rel.name || "").toLowerCase();
+                            return relName.includes("trafficcounts");
+                        }) || (adtLineLayer.relationships && adtLineLayer.relationships.length > 0 ? adtLineLayer.relationships[0] : null);
+                        if (!adtRelationshipInfo) {
+                            console.warn("No related table definition found for ADT layer; ADT tab will be limited.");
+                        } else {
+                            await ensureAdtRelatedTableLayer().catch(error => console.warn("Unable to load ADT related table during initialization:", error));
                         }
 
                         originalViewpoint = view.viewpoint.clone();
                         addUiElements();
-                        allLayers = map.layers.filter(layer => layer.type === "feature").toArray();
+                        initializeTableTabs();
+                        allLayers = map.layers.filter(layer => layer.type === "feature" && !layer.appExcludeFromFilters).toArray();
 
                         if (allLayers.length === 0) {
                             throw new Error("No FeatureLayers found in the Web Map. Application cannot function.");
@@ -1294,12 +2017,16 @@
                         await view.when(() => Promise.all(allLayers.map(layer => view.whenLayerView(layer))));
 
                         // Use the first layer that has relationships to populate years
-                        const layerForYears = allLayers.find(l => l.relationships?.length > 0) || allLayers[0];
+                        const layerForYears = allLayers.find(l => l.relationships && l.relationships.length > 0) || allLayers[0];
 
-                        await Promise.all([
+                        const yearPopulationPromises = [
                             populateStreetList(allLayers),
                             populateYearsFromRelatedData(layerForYears)
-                        ]);
+                        ];
+                        if (adtLineLayer && adtLineLayer.relationships && adtLineLayer.relationships.length > 0) {
+                            yearPopulationPromises.push(populateYearsFromRelatedData(adtLineLayer));
+                        }
+                        await Promise.all(yearPopulationPromises);
 
                         createFilterElements();
                         initializeStreetAutocomplete();
@@ -1317,8 +2044,11 @@
                 init();
 
             });
+            
         });
     </script>
 </body>
 
 </html>
+
+
