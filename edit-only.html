@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analytics Editor</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+    <script>
+        window.PEAK_APP_CONFIG = Object.assign({
+            portalUrl: "https://walnutcreek.maps.arcgis.com",
+            oauthAppId: "mz86rbSUbYtreYS9",
+            oauthRedirectUri: "https://calbyeon.github.io/"
+        }, window.PEAK_APP_CONFIG || {});
+    </script>
+    <style>
+        html,
+        body,
+        #app {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background-color: #ffffff;
+            border-bottom: 1px solid #d4d4d4;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+            z-index: 2;
+        }
+
+        #header h1 {
+            font-size: 18px;
+            margin: 0;
+        }
+
+        #header .actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        #header button {
+            padding: 6px 14px;
+            border: 1px solid #1f7a8c;
+            background-color: #1f7a8c;
+            color: #ffffff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        #header button.secondary {
+            background-color: #ffffff;
+            color: #1f7a8c;
+        }
+
+        #header button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .header-link-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #1f7a8c;
+            color: #ffffff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .header-link-button:hover {
+            background-color: #155d6a;
+        }
+
+        #statusMessage {
+            font-size: 13px;
+            color: #555555;
+        }
+
+        #mainContent {
+            position: absolute;
+            top: 58px;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #viewDiv {
+            flex: 1 1 auto;
+        }
+
+        #tableContainer {
+            flex: 0 0 32%;
+            min-height: 240px;
+            border-top: 1px solid #d4d4d4;
+            background-color: #ffffff;
+            box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #tableHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f7f7f7;
+        }
+
+        #tableHeader h2 {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        #layerSelect {
+            padding: 6px 10px;
+            border: 1px solid #b5b5b5;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #tableDiv {
+            flex: 1 1 auto;
+        }
+    </style>
+    <script src="https://js.arcgis.com/4.30/"></script>
+</head>
+
+<body>
+    <div id="app">
+        <div id="header">
+            <h1>Traffic Analytics Editing Map</h1>
+            <div class="actions">
+                <a class="header-link-button" href="index.html">Open Public Map</a>
+                <span id="statusMessage">Authenticating…</span>
+                <select id="layerSelect" style="display:none;"></select>
+                <button id="signInBtn">Sign in</button>
+                <button id="signOutBtn" class="secondary" style="display:none;">Sign out</button>
+            </div>
+        </div>
+        <div id="mainContent">
+            <div id="viewDiv" role="region" aria-label="Editable map"></div>
+            <div id="tableContainer" style="display:none;">
+                <div id="tableHeader">
+                    <h2 id="tableTitle">Feature Table</h2>
+                    <span id="tableStatus" style="font-size:13px;color:#555;"></span>
+                </div>
+                <div id="tableDiv"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = window.PEAK_APP_CONFIG || {};
+        const PORTAL_URL = CONFIG.portalUrl || "https://www.arcgis.com";
+        const OAUTH_APP_ID = CONFIG.oauthAppId || "REPLACE_WITH_YOUR_APP_ID";
+        const OAUTH_REDIRECT_URI = CONFIG.oauthRedirectUri || window.location.href;
+        const ADT_EDITABLE_PORTAL_ITEM_ID = "f5c54f8a112149d0bce715a4ded24f02";
+        const TRAFFIC_EDITABLE_PORTAL_ITEM_ID = "ca9fcb119fc54c21a0d3dade0d4915db";
+
+        require([
+            "esri/WebMap",
+            "esri/views/MapView",
+            "esri/widgets/Editor",
+            "esri/widgets/LayerList",
+            "esri/widgets/BasemapGallery",
+            "esri/widgets/Expand",
+            "esri/widgets/Search",
+            "esri/widgets/FeatureTable",
+            "esri/identity/IdentityManager",
+            "esri/identity/OAuthInfo",
+            "esri/core/reactiveUtils"
+        ], function (WebMap, MapView, Editor, LayerList, BasemapGallery, Expand, Search, FeatureTable, IdentityManager, OAuthInfo, reactiveUtils) {
+            const signInBtn = document.getElementById("signInBtn");
+            const signOutBtn = document.getElementById("signOutBtn");
+            const statusMessage = document.getElementById("statusMessage");
+            const layerSelect = document.getElementById("layerSelect");
+            const tableContainer = document.getElementById("tableContainer");
+            const tableDiv = document.getElementById("tableDiv");
+            const tableTitle = document.getElementById("tableTitle");
+            const tableStatus = document.getElementById("tableStatus");
+
+            function updateStatus(text, tone) {
+                statusMessage.textContent = text;
+                statusMessage.dataset.tone = tone || "";
+            }
+
+            function toggleSignInState(isSignedIn) {
+                if (isSignedIn) {
+                    signInBtn.style.display = "none";
+                    signOutBtn.style.display = "inline-flex";
+                } else {
+                    signInBtn.style.display = "inline-flex";
+                    signOutBtn.style.display = "none";
+                }
+            }
+
+            let oauthInfo = null;
+            if (OAUTH_APP_ID && OAUTH_APP_ID !== "REPLACE_WITH_YOUR_APP_ID") {
+                const OAuthCtor = (OAuthInfo && typeof OAuthInfo === "object" && OAuthInfo.default)
+                    ? OAuthInfo.default
+                    : OAuthInfo;
+                if (typeof OAuthCtor === "function") {
+                    oauthInfo = new OAuthCtor({
+                        appId: OAUTH_APP_ID,
+                        portalUrl: PORTAL_URL,
+                        popup: true,
+                        popupCallbackUrl: OAUTH_REDIRECT_URI
+                    });
+                    IdentityManager.registerOAuthInfos([oauthInfo]);
+                } else {
+                    console.warn("Unable to initialize OAuthInfo module.", OAuthInfo);
+                    updateStatus("OAuth library unavailable. Editing disabled.", "error");
+                }
+            } else {
+                updateStatus("Configure OAUTH_APP_ID to enable editing.", "warning");
+            }
+
+            async function ensureSignedIn() {
+                if (!oauthInfo) {
+                    return;
+                }
+                try {
+                    const credential = await IdentityManager.checkSignInStatus(`${oauthInfo.portalUrl}/sharing`);
+                    toggleSignInState(true);
+                    updateStatus(`Signed in as ${credential.userId}`, "success");
+                } catch (error) {
+                    toggleSignInState(false);
+                    updateStatus("Not signed in. Editing will prompt for ArcGIS credentials.", "info");
+                }
+            }
+
+            async function acquireCredential() {
+                if (!oauthInfo) {
+                    return null;
+                }
+                const credential = await IdentityManager.getCredential(`${oauthInfo.portalUrl}/sharing`);
+                toggleSignInState(true);
+                updateStatus(`Signed in as ${credential.userId}`, "success");
+                return credential;
+            }
+
+            if (signInBtn) {
+                signInBtn.addEventListener("click", async () => {
+                    if (!oauthInfo) {
+                        updateStatus("OAuth is not configured.", "error");
+                        return;
+                    }
+                    try {
+                        await acquireCredential();
+                        await loadEditableLayers(true);
+                    } catch (error) {
+                        if (error?.message?.includes("User canceled")) {
+                            updateStatus("Sign-in canceled.", "warning");
+                        } else {
+                            updateStatus(`Sign-in failed: ${error.message || error}`, "error");
+                        }
+                    }
+                });
+            }
+
+            if (signOutBtn) {
+                signOutBtn.addEventListener("click", () => {
+                    IdentityManager.destroyCredentials();
+                    toggleSignInState(false);
+                    updateStatus("Signed out. Editing requires ArcGIS credentials.", "info");
+                    editableSources = [];
+                    if (layerSelect) {
+                        layerSelect.innerHTML = "";
+                        layerSelect.style.display = "none";
+                    }
+                    if (featureTable) {
+                        featureTable.destroy();
+                        featureTable = null;
+                    }
+                    if (tableContainer) {
+                        tableContainer.style.display = "none";
+                    }
+                    loadEditableLayers(false);
+                });
+            }
+
+            const map = new WebMap({
+                portalItem: { id: "e22b69d781254a3bbbf5d2310ba75315" }
+            });
+
+            const view = new MapView({
+                container: "viewDiv",
+                map,
+                center: [-122.063686, 37.901657],
+                zoom: 13,
+                popup: {
+                    dockEnabled: true,
+                    dockOptions: {
+                        position: "bottom-right",
+                        buttonEnabled: false,
+                        breakpoint: false
+                    }
+                }
+            });
+
+            const searchWidget = new Search({ view });
+            view.ui.add(searchWidget, { position: "top-left", index: 0 });
+
+            const layerList = new LayerList({ view });
+            view.ui.add(layerList, "top-right");
+
+            const basemapGallery = new BasemapGallery({ view });
+            const basemapExpand = new Expand({
+                view,
+                content: basemapGallery,
+                expandIconClass: "esri-icon-basemap"
+            });
+            view.ui.add(basemapExpand, "top-right");
+
+            let editorWidget = null;
+            let editorExpand = null;
+            let featureTable = null;
+            let editableSources = [];
+            let loadingPromise = null;
+
+            async function loadEditableLayers(requireCredential = false) {
+                if (loadingPromise) {
+                    return loadingPromise;
+                }
+                loadingPromise = (async () => {
+                try {
+                    if (requireCredential && oauthInfo) {
+                        await acquireCredential();
+                    }
+
+                    updateStatus("Loading editable web map…", "info");
+                    if (map.loadStatus !== "loaded") {
+                        await map.load();
+                    }
+                    await view.when();
+
+                    if (tableContainer) {
+                        tableContainer.style.display = "none";
+                    }
+                    if (featureTable) {
+                        featureTable.destroy();
+                        featureTable = null;
+                        tableDiv.innerHTML = "";
+                    }
+
+                    editableSources = [];
+                    collectEditableSources(map.layers, editableSources);
+                    collectEditableSources(map.tables, editableSources);
+
+                    if (editableSources.length === 0) {
+                        if (tableContainer) tableContainer.style.display = "none";
+                        if (layerSelect) layerSelect.style.display = "none";
+                        updateStatus("No editable layers found in this map.", "warning");
+                        return;
+                    }
+
+                    await Promise.all(editableSources.map(layer => layer.load()));
+                    editableSources.forEach(layer => {
+                        if (!layer.isTable && "legendEnabled" in layer) {
+                            layer.legendEnabled = true;
+                        }
+                        if ("outFields" in layer) {
+                            layer.outFields = ["*"];
+                        }
+                    });
+
+                    if (!editorWidget) {
+                        editorWidget = new Editor({
+                            view,
+                            layerInfos: editableSources
+                                .filter(source => !source.isTable)
+                                .map(layer => ({ layer }))
+                        });
+                        editorExpand = new Expand({
+                            view,
+                            content: editorWidget,
+                            expandIconClass: "esri-icon-edit",
+                            expanded: false
+                        });
+                        view.ui.add(editorExpand, "top-left");
+                    } else {
+                        editorWidget.viewModel.layerInfos = editableSources
+                            .filter(source => !source.isTable)
+                            .map(layer => ({ layer }));
+                    }
+
+                    populateLayerSelect();
+                    const initialLayer = editableSources[0];
+                    if (layerSelect) {
+                        layerSelect.value = "0";
+                    }
+                    initializeFeatureTable(initialLayer);
+                    updateStatus("Layers ready. Use the editor or table to modify features.", "success");
+                } catch (error) {
+                    console.error("Failed to load editable layers:", error);
+                    if (tableContainer) tableContainer.style.display = "none";
+                    if (layerSelect) layerSelect.style.display = "none";
+                    if (error?.code === 499 || (error?.message || "").toLowerCase().includes("permission")) {
+                        updateStatus("Sign in to access editable layers.", "warning");
+                    } else {
+                        updateStatus(`Failed to load editable services: ${error.message || error}`, "error");
+                    }
+                }
+                finally {
+                    loadingPromise = null;
+                }
+                })();
+                return loadingPromise;
+            }
+
+            function collectEditableSources(layerCollection, target) {
+                if (!layerCollection || typeof layerCollection.forEach !== "function") {
+                    return;
+                }
+                layerCollection.forEach(layer => {
+                    if (layer.type === "group") {
+                        collectEditableSources(layer.layers, target);
+                        return;
+                    }
+                    if (
+                        layer.type === "feature" &&
+                        layer.editingEnabled !== false &&
+                        layer.capabilities?.operations?.supportsEditing
+                    ) {
+                        if (typeof layer.isTable !== "boolean") {
+                            layer.isTable = !layer.geometryType;
+                        }
+                        target.push(layer);
+                    }
+                });
+            }
+
+            function populateLayerSelect() {
+                if (!layerSelect) {
+                    return;
+                }
+                layerSelect.innerHTML = "";
+                layerSelect.onchange = null;
+                editableSources.forEach((layer, index) => {
+                    const option = document.createElement("option");
+                    option.value = String(index);
+                        option.textContent = (layer.title || `Layer ${index + 1}`) + (layer.isTable ? " (Table)" : "");
+                        option.dataset.sourceIndex = String(index);
+                        layerSelect.appendChild(option);
+                    });
+                layerSelect.style.display = "inline-flex";
+                layerSelect.onchange = () => {
+                    const selectedOption = layerSelect.selectedOptions[0];
+                    const sourceIndex = selectedOption ? Number(selectedOption.dataset.sourceIndex) : NaN;
+                    const selectedLayer = Number.isFinite(sourceIndex) ? editableSources[sourceIndex] : null;
+                    if (selectedLayer) {
+                        initializeFeatureTable(selectedLayer);
+                    }
+                };
+            }
+
+            async function initializeFeatureTable(layer) {
+                if (!layer || !tableDiv) {
+                    return;
+                }
+                if (tableStatus) {
+                    tableStatus.textContent = "Loading table…";
+                }
+                try {
+                    if (!layer.loaded) {
+                        await layer.load();
+                    }
+                    if (featureTable) {
+                        featureTable.destroy();
+                        featureTable = null;
+                        tableDiv.innerHTML = "";
+                    }
+                    featureTable = new FeatureTable({
+                        view,
+                        layer,
+                        container: tableDiv,
+                        multiSortEnabled: true,
+                        editingEnabled: true,
+                        menuConfig: {
+                            items: [
+                                { name: "center-on-selection" },
+                                { name: "zoom-to-selection" },
+                                { name: "clear-selection" }
+                            ]
+                        }
+                    });
+                    if (tableTitle) {
+                        tableTitle.textContent = layer.title || "Feature Table";
+                    }
+                    if (tableContainer) {
+                        tableContainer.style.display = "flex";
+                    }
+                    if (tableStatus) {
+                        tableStatus.textContent = "Editable table linked to map selection.";
+                    }
+                } catch (error) {
+                    console.error("Failed to initialize FeatureTable:", error);
+                    if (tableStatus) {
+                        tableStatus.textContent = `Failed to load table: ${error.message || error}`;
+                    }
+                }
+            }
+
+            loadEditableLayers(true);
+            ensureSignedIn();
+
+            reactiveUtils.whenOnce(() => view.ready, () => {
+                if (!statusMessage.textContent) {
+                    updateStatus("Map ready. Sign in to edit.", "info");
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

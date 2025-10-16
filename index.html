@@ -71,6 +71,32 @@
             z-index: 1;
         }
 
+        #header .header-title {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .header-link-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #1f7a8c;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .header-link-button:hover {
+            background-color: #155d6a;
+        }
+
         /* Map View takes up remaining flexible space */
         #viewDiv {
             flex: 1 1 auto;
@@ -526,8 +552,11 @@
 <body>
     <div id="app-container">
         <header id="header">
-            <div>City of Walnut Creek</div>
-            <div>Traffic Analytics Map</div>
+            <div class="header-title">
+                <span>City of Walnut Creek</span>
+                <span>Traffic Analytics Map</span>
+            </div>
+            <a class="header-link-button" href="edit-only.html">Open Editing Map</a>
         </header>
 
         <div id="viewDiv">
@@ -669,12 +698,16 @@
             const TRAFFIC_MANUAL_ENTRY_BTN_ID = "trafficManualEntryBtn";
             const TRAFFIC_UPLOAD_FEEDBACK_ID = "trafficUploadFeedback";
             const ADT_REFERENCE_LAYER_TITLE = "Unique PEAK Traffic Count Intersections";
+            const ADT_VIEW_LAYER_TITLE = "PEAK_ADTViewable_10152025 - ADT";
+            const LEGACY_ADT_LAYER_TITLE = "Average Daily Traffic Counts";
+            const ADT_VIEW_LAYER_URL_FRAGMENT = "PEAK_ADTViewable_10152025/FeatureServer";
             const ADT_EDITABLE_PORTAL_ITEM_ID = "f5c54f8a112149d0bce715a4ded24f02";
             const TRAFFIC_EDITABLE_PORTAL_ITEM_ID = "ca9fcb119fc54c21a0d3dade0d4915db";
             const APP_CONFIG = window.PEAK_APP_CONFIG || {};
             const PORTAL_URL = APP_CONFIG.portalUrl || "https://www.arcgis.com";
             const OAUTH_APP_ID = APP_CONFIG.oauthAppId || "REPLACE_WITH_YOUR_APP_ID";
             const OAUTH_REDIRECT_URI = APP_CONFIG.oauthRedirectUri || (window.location.origin + window.location.pathname);
+            const ADMIN_FEATURES_ENABLED = !!APP_CONFIG.enableAdminUploads;
 
             // --- State Variables ---
             let map, view;
@@ -722,6 +755,13 @@
             let trafficParentLookupByGuid = new Map();
             let trafficPrimaryKeyField = null;
             let trafficTableForCounts = null;
+
+            if (!ADMIN_FEATURES_ENABLED) {
+                const adminPanelElement = document.getElementById(ADMIN_PANEL_ID);
+                if (adminPanelElement) {
+                    adminPanelElement.style.display = "none";
+                }
+            }
 
             // --- ArcGIS Modules ---
             require([
@@ -1024,6 +1064,22 @@
                         }
                         if (layer?.layers) {
                             const childMatch = findLayerByTitle(layer.layers, title);
+                            if (childMatch) return childMatch;
+                        }
+                    }
+                    return null;
+                }
+
+                function findLayerByUrlFragment(collection, fragment) {
+                    if (!fragment) return null;
+                    const lowerFragment = fragment.toLowerCase();
+                    for (const layer of collectionToArray(collection)) {
+                        const layerUrl = (layer?.url || "").toLowerCase();
+                        if (layerUrl.includes(lowerFragment)) {
+                            return layer;
+                        }
+                        if (layer?.layers) {
+                            const childMatch = findLayerByUrlFragment(layer.layers, fragment);
                             if (childMatch) return childMatch;
                         }
                     }
@@ -3365,7 +3421,9 @@
                         "LocationID", "Intersection_ID", "Longitude", "Latitude",
                         "PopupInfo", "Names", "Traffic_DataCollection_Date", "City", "State",
                         "Intersection_Type", "Leg_Type", "OBJECTID_1", "ParentGlobalID", "GlobalID",
-                        "Shape__Area", "Shape__Length", "Major_Street", "Minor_Street", "PEAK_ID"
+                        "Shape__Area", "Shape__Length", "Major_Street", "Minor_Street", "PEAK_ID",
+                        "CreationDate", "Creator", "EditDate", "Editor", "created_user", "createdate",
+                        "creationdate", "editdate", "last_edited_user", "last_edited_date"
                     ];
 
                     let headersToDisplay = Array.from(headersSet).filter(attr => {
@@ -3707,65 +3765,53 @@
                         const layerListWidget = new LayerList({ view });
                         view.ui.add(layerListWidget, "top-left");
 
-                        adtLineLayer = new FeatureLayer({
-                            url: "https://services2.arcgis.com/AhHMUmDoudKVXiUl/arcgis/rest/services/ADT_Counts_WFL1/FeatureServer/0",
-                            title: "Average Daily Traffic Counts",
-                            outFields: ["*"],
-                            renderer: {
-                                type: "simple",
-                                symbol: {
-                                    type: "simple-line",
-                                    style: "solid",
-                                    color: [255, 140, 0, 1],
-                                    width: 1.5,
-                                    cap: "round",
-                                    join: "round"
-                                }
-                            },
-                            labelingInfo: [{
-                                labelPlacement: "center-along-line",
-                                labelExpressionInfo: { expression: "Text($feature.ADT)" },
-                                symbol: {
-                                    type: "text",
-                                    color: [80, 80, 80, 1],
-                                    haloColor: [255, 255, 255, 1],
-                                    haloSize: 1.5,
-                                    font: {
-                                        size: 8,
-                                        family: "Arial",
-                                        weight: "bold"
-                                    }
-                                }
-                            }],
-                            labelsVisible: true
-                        });
-                        adtLineLayer.appExcludeFromFilters = true;
-                        map.add(adtLineLayer);
-                        const layerChangeHandle = map.layers.on("change", () => {
-                            if (tryReorderAdtLayer()) {
-                                layerChangeHandle.remove();
+                        const legacyAdtLayer = findLayerByTitle(map.layers, LEGACY_ADT_LAYER_TITLE);
+                        if (legacyAdtLayer) {
+                            try {
+                                map.layers.remove(legacyAdtLayer);
+                            } catch (removeError) {
+                                console.warn("Unable to remove legacy ADT layer:", removeError);
+                                legacyAdtLayer.visible = false;
+                                legacyAdtLayer.appExcludeFromFilters = true;
                             }
-                        });
-                        if (!tryReorderAdtLayer()) {
-                            reactiveUtils.when(() => !!findRootLayerByTitle(ADT_REFERENCE_LAYER_TITLE), () => {
-                                if (tryReorderAdtLayer()) {
-                                    layerChangeHandle.remove();
-                                }
-                            }, { once: true });
-                        } else {
-                            layerChangeHandle.remove();
                         }
-                        await adtLineLayer.when();
-                        adtSelectedOids.clear();
-                        adtAllParentOids = null;
-                        adtRelationshipInfo = (adtLineLayer.relationships || []).find(rel => {
-                            const relName = (rel.name || "").toLowerCase();
-                            return relName.includes("trafficcounts");
-                        }) || (adtLineLayer.relationships && adtLineLayer.relationships.length > 0 ? adtLineLayer.relationships[0] : null);
-                        if (!adtRelationshipInfo) {
-                            console.warn("No related table definition found for ADT layer; ADT tab will be limited.");
+
+                        adtLineLayer = findLayerByTitle(map.layers, ADT_VIEW_LAYER_TITLE) ||
+                            findLayerByUrlFragment(map.layers, ADT_VIEW_LAYER_URL_FRAGMENT);
+                        if (adtLineLayer) {
+                            adtLineLayer.appExcludeFromFilters = true;
+                            if (!Array.isArray(adtLineLayer.outFields) || adtLineLayer.outFields.length === 0) {
+                                adtLineLayer.outFields = ["*"];
+                            }
+                            if (typeof adtLineLayer.labelsVisible === "undefined") {
+                                adtLineLayer.labelsVisible = true;
+                            }
+                            if (!tryReorderAdtLayer()) {
+                                const reorderHandle = map.layers.on("change", () => {
+                                    if (tryReorderAdtLayer()) {
+                                        reorderHandle.remove();
+                                    }
+                                });
+                                reactiveUtils.when(() => !!findRootLayerByTitle(ADT_REFERENCE_LAYER_TITLE), () => {
+                                    if (tryReorderAdtLayer()) {
+                                        reorderHandle.remove();
+                                    }
+                                }, { once: true });
+                            }
+                            await adtLineLayer.when();
+                            adtSelectedOids.clear();
+                            adtAllParentOids = null;
+                            adtRelationshipInfo = (adtLineLayer.relationships || []).find(rel => {
+                                const relName = (rel.name || "").toLowerCase();
+                                return relName.includes("trafficcounts");
+                            }) || (adtLineLayer.relationships && adtLineLayer.relationships.length > 0 ? adtLineLayer.relationships[0] : null);
+                            if (!adtRelationshipInfo) {
+                                console.warn("No related table definition found for ADT layer; ADT tab will be limited.");
+                            } else {
+                                await ensureAdtRelatedTableLayer().catch(error => console.warn("Unable to load ADT related table during initialization:", error));
+                            }
                         } else {
-                            await ensureAdtRelatedTableLayer().catch(error => console.warn("Unable to load ADT related table during initialization:", error));
+                            console.warn("ADT view layer was not found in the web map; ADT tab will be unavailable.");
                         }
 
                         originalViewpoint = view.viewpoint.clone();
@@ -3804,7 +3850,7 @@
                     }
                 }
 
-                if (isOAuthConfigured()) {
+                if (ADMIN_FEATURES_ENABLED && isOAuthConfigured()) {
                     registeredOAuthInfo = new OAuthInfo({
                         appId: OAUTH_APP_ID,
                         portalUrl: PORTAL_URL,
@@ -3814,7 +3860,9 @@
                     IdentityManager.registerOAuthInfos([registeredOAuthInfo]);
                 }
 
-                initializeAdminPanel(registeredOAuthInfo);
+                if (ADMIN_FEATURES_ENABLED) {
+                    initializeAdminPanel(registeredOAuthInfo);
+                }
                 init();
 
             });
